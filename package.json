@@ -1,0 +1,13 @@
+{
+  "name": "care-pathway-builder",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Visual orchestration for clinical care pathways with live digital-twin analysis. Single-file React 18 + Tailwind via CDN (no build step).",
+  "scripts": {
+    "start": "serve -l 3000 .",
+    "dev": "serve -l 3000 ."
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
+  }
+}
