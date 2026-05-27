@@ -259,6 +259,8 @@
     const IconPlus = () => <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
     const IconCornerDown = () => <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 10 4 15 9 20"></polyline><path d="M20 4v7a4 4 0 0 1-4 4H4"></path></svg>;
     const IconUsers = ({ size = 12 }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>;
+    const IconFileText = ({ size = 14 }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="15" y2="17"></line></svg>;
+    const IconClock = ({ size = 12 }) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>;
 
     const NODE_TYPES = [
       { id: 'assess',  label: 'Assess',  hex: '#A8431F', icon: <IconAlertCircle /> },
@@ -273,7 +275,8 @@
     // `locked: true` means escalated approval is required before it can be added.
     const PRESCRIBABLES = {
       assess: [
-        { id: 'moca',        label: 'MoCA cognitive screen',               nestedFlow: ['Administered remotely or in-clinic', '30-point score captured in Athena', 'Score < 26 flags impairment'] },
+        // Cognitive + behavioral screens
+        { id: 'moca',        label: 'MoCA cognitive screen',               nestedFlow: ['Administered remotely or in-clinic', '30-point score captured in Athena', 'Score < 26 flags impairment'], precondition: 'Only required if no MoCA score documented in the last 6 months' },
         { id: 'mis',         label: 'MIS memory impairment screen',         nestedFlow: ['Four-item delayed recall', 'Score 0-8 documented', 'Score ≤ 4 flags possible dementia'] },
         { id: 'mini-cog',    label: 'Mini-Cog screen',                      nestedFlow: ['Three-word recall + clock draw', 'Score 0-5 documented', 'Score ≤ 2 flags cognitive impairment'] },
         { id: 'ad8',         label: 'AD8 informant interview',              nestedFlow: ['Informant completes eight-item screen', 'Score ≥ 2 flags possible dementia', 'Care nav reviews + escalates'] },
@@ -286,6 +289,17 @@
         { id: 'audit-c',     label: 'AUDIT-C alcohol screen',               nestedFlow: ['Three-item alcohol-use screen', 'Positive screen → brief intervention', 'Documented at intake'] },
         { id: 'hrsn',        label: 'HRSN screening (AHC / PRAPARE)',       nestedFlow: ['Screen completed', 'Positive domains identified', 'Community referral loop opened'] },
         { id: 'biomarkers',  label: 'Biomarkers + MRI review',              nestedFlow: ['Dementia lab panel resulted', 'MRI report reviewed by provider', 'Surveillance imaging on schedule'], locked: true, lockReason: 'Neurology consult prerequisite' },
+        // Perry Health operational pre-visit tasks (99205 + 99483 share these)
+        { id: 'verify-insurance', label: 'Verify insurance is active',         nestedFlow: ['RCM confirms eligibility in NGS + Athena at T-7', 'Escalates inactive coverage to MFA approver same day'] },
+        { id: 'send-intake',      label: 'Send intake + history packet',      nestedFlow: ['Delivered via preferred channel within 1 business day of booking', 'Receipt confirmed ≥5 business days pre-visit'] },
+        { id: 'confirm-caregiver', label: 'Confirm caregiver will attend',    nestedFlow: ['Caregiver Liaison confirms attendance ≥5 business days pre-visit', 'Reason logged + clinician notified if absent'] },
+        { id: 'verify-labs',      label: 'Verify dementia lab orders placed', nestedFlow: ['MA confirms B12, TSH, CMP, CBC resulted or queued at T-7', 'Re-orders results older than 6 months at the visit'] },
+        { id: 'confirm-referral', label: 'Confirm referral attached in Athena', nestedFlow: ['Enrollment verifies referral at booking', 'Opens callback task + gates fax-records step if missing'] },
+        { id: 'fax-records',      label: 'Fax medical record request',        nestedFlow: ['Care Coordination faxes records request when prior records missing', 'Re-fires at 5 days; escalates at 10 days unclosed'] },
+        { id: 'prep-room-moca',   label: 'Prep room for in-clinic MoCA',      nestedFlow: ['MA stages screening materials morning of visit', 'Marks room ready in Athena pre-visit checklist'] },
+        // Perry Health 99215-specific pre-visit checks
+        { id: 'mri-reviewed',     label: 'Confirm MRI report reviewed',        nestedFlow: ['Provider confirms MRI report reviewed in chart', 'Documented one week pre-visit'] },
+        { id: 'cognitive-reassess', label: 'Confirm cognitive reassessment status', nestedFlow: ['MA confirms cognitive reassessment on six-month cadence', 'Triggers re-administration if overdue'] },
       ],
       decide: [
         { id: 'cms-elig',          label: 'CMS eligibility pre-screen',          nestedFlow: ['Medicare A+B verified', 'Not in MA/PACE/hospice', 'Not LTNH resident'] },
@@ -293,7 +307,7 @@
         { id: 'zbi-22',            label: 'Caregiver burden (ZBI-22)',           nestedFlow: ['Full 22-item ZBI completed', 'Burden score 0–88 calculated', 'Dyad tier finalized'], locked: true, lockReason: 'ZBI-22 administration cert' },
         { id: 'care-plan-review',  label: 'Care plan review',                    nestedFlow: ['Annual review scheduled', 'PCP signoff requested', 'Updates sent to family'] },
         { id: 'adherence',         label: 'Adherence check',                     nestedFlow: ['Medication refills reviewed', 'Visit attendance audited', 'Below-threshold drops flagged'] },
-        { id: 'readiness-sweep',   label: 'Readiness sweep (T-14 / T-7 / T-2)',  nestedFlow: ['Four-dimension sweep at T-14', 'Red items escalated at T-7', 'Green/Yellow/Red locked at T-2'] },
+        { id: 'readiness-sweep',   label: 'Readiness sweep (T-14 / T-7 / T-2)',  nestedFlow: ['Two-week readiness sweep + remediation', 'One-week sweep escalates red items', 'Final readiness call locks Green/Yellow/Red at T-2'] },
       ],
       treat: [
         { id: 'wellness',           label: 'General wellness',          nestedFlow: ['Lifestyle education delivered', 'Annual flu administered', 'Exercise referral placed'] },
@@ -304,6 +318,11 @@
         { id: 'guide-plan',         label: 'GUIDE care plan',           nestedFlow: ['Care navigator assigned', 'Tier-based DCMP billing live', '24/7 helpline activated', 'PROMIS-10 baseline captured'], locked: true, lockReason: 'CMS GUIDE PAAF enrollment' },
         { id: 'respite',            label: 'Respite services',          nestedFlow: ['In-home aide visit booked', 'Caregiver day off planned', 'Hours tracked vs $2,500/yr cap'], locked: true, lockReason: 'Partner roster + benefit check' },
         { id: 'neurology-consult',  label: 'Neurology consult',         nestedFlow: ['Referral placed', 'Specialist appointment booked', 'Report routed to PCP'], locked: true, lockReason: 'Specialist network capacity' },
+        // Perry Health visit-execution tasks
+        { id: 'deliver-prep-packet', label: 'Deliver clinician prep packet ≥60 min pre-visit', nestedFlow: ['Care Coordination delivers prep packet via secure message', 'Member summary, scores, suggested agenda + outstanding items'] },
+        { id: 'conduct-205',         label: 'Conduct 99205 evaluation + sign note',           nestedFlow: ['Provider signs evaluation note in Athena same business day', 'Documents high MDM OR 60–74 minutes time-spent'] },
+        { id: 'conduct-483',         label: 'Conduct comprehensive assessment + sign note',   nestedFlow: ['Provider signs Care Plan Visit note same business day', 'All ten required elements + medical-necessity statement captured'] },
+        { id: 'conduct-215',         label: 'Conduct follow-up + sign visit note',            nestedFlow: ['Provider signs follow-up note in Athena same business day', 'Time-spent captured'] },
       ],
       monitor: [
         { id: 'cdr-stage',      label: 'CDR stage',              nestedFlow: ['Annual CDR re-administer', 'Stage compared to baseline', 'Tier change triggers logged'] },
@@ -314,11 +333,19 @@
         { id: 'digital-twin',   label: 'Digital twin progression', nestedFlow: ['Biological progression updated weekly', 'Trajectory model refreshed', 'Pre-visit packet attached'], locked: true, lockReason: 'Digital Twin license + data feed' },
       ],
       outcome: [
+        // Clinical outcome metrics
         { id: 'slow-decline',      label: 'Slow cognitive decline',  nestedFlow: ['CDR trend < 0.5/yr', 'ADLs preserved', 'PROMIS-10 ≥ baseline'] },
         { id: 'reduce-burden',     label: 'Reduce caregiver burden', nestedFlow: ['ZBI down ≥ 5 points', 'Respite hours used', 'Support group attendance'] },
         { id: 'maintain-adls',     label: 'Maintain ADLs',           nestedFlow: ['Functional independence tracked', 'Falls prevented', 'Hospitalization avoided'] },
         { id: 'prevent-hosp',      label: 'Prevent hospitalization', nestedFlow: ['Acute ED visits tracked', 'Hospital admits flagged', 'Care plan adjusted'] },
         { id: 'guide-compliance',  label: 'CMS GUIDE compliance',    nestedFlow: ['PAAF submitted on time', 'DCMP billed accurately', 'Records retained 6 yrs'], locked: true, lockReason: 'CMS GUIDE PA active' },
+        // Perry Health post-visit extraction tasks
+        { id: 'review-orders',       label: 'Review note for orders correctness',    nestedFlow: ['Confirms every ordered item in Athena within 1 business day', 'Remediates gaps within 2 business days'] },
+        { id: 'confirm-scheduling',  label: 'Confirm downstream visit scheduling',    nestedFlow: ['Verifies next visit booked at appropriate cadence', 'Books follow-up if missing'] },
+        { id: 'route-safety',        label: 'Route post-visit safety actions',        nestedFlow: ['Driving, falls, wandering, firearms, medication, home-safety tasks routed', 'All within 1 business day of signed note'] },
+        { id: 'verify-elements',     label: 'Verify ten care-plan elements documented', nestedFlow: ['Care Coordination audits Care Plan Visit note within 1 business day', 'Gaps remediated same week'] },
+        { id: 'verify-orders',       label: 'Verify post-visit orders are placed',    nestedFlow: ['Confirms ordered items in Athena', 'Escalates missing orders to provider'] },
+        { id: 'route-follow-ups',    label: 'Route care-plan follow-up actions',      nestedFlow: ['Follow-up actions tasked to owners', 'Downstream visits booked within 48 hours of signed note'] },
       ],
     };
 
@@ -366,19 +393,19 @@
         phases: [
           phaseNode('205-pre', 'assess', '99205 pre-visit preparation',
             'RCM, Member Experience, and Care Coordination confirm readiness ≥7 business days before the new-patient encounter.',
-            ['moca', 'mis']),
+            ['moca', 'mis', 'confirm-caregiver', 'confirm-referral', 'verify-insurance']),
           phaseNode('205-gate', 'decide', '99205 T-2 readiness decision',
             'Caregiver attendance, insurance, referral, and screening completion locked two business days pre-visit.',
-            ['cms-elig', 'readiness-sweep']),
+            ['readiness-sweep']),
           phaseNode('205-during', 'treat', '99205 visit execution',
             'Provider delivers the new-patient evaluation and signs the note same business day with high MDM or 60–74 minutes time-spent.',
-            ['dcm']),
+            ['deliver-prep-packet', 'conduct-205']),
           phaseNode('205-monitor', 'monitor', '99205 post-visit monitoring',
             'Orders, downstream visits, and safety tasks tracked through 7 days post-visit.',
             ['cp-adherence']),
           phaseNode('205-post', 'outcome', '99205 post-visit extraction',
             'Care Coordination reviews the signed note, schedules follow-ups, and routes safety tasks within 1 business day.',
-            ['maintain-adls']),
+            ['review-orders', 'confirm-scheduling', 'route-safety']),
         ],
       },
       '99483': {
@@ -387,20 +414,20 @@
         hex: '#A87D2A', // ochre
         phases: [
           phaseNode('483-pre', 'assess', '99483 pre-visit preparation',
-            'Screening battery + caregiver intake completed before the Care Plan visit.',
-            ['moca', 'adl-iadl']),
-          phaseNode('483-gate', 'decide', '99483 readiness gate',
+            'Same eight-task readiness set as 99205 — insurance, intake, caregiver, MoCA + MIS, labs, referral, fax records, room prep.',
+            ['moca', 'adl-iadl', 'confirm-caregiver', 'verify-labs', 'confirm-referral']),
+          phaseNode('483-gate', 'decide', '99483 pre-visit readiness gate',
             'Three-step readiness sweep (T-14, T-7, T-2) locks Green / Yellow / Red status before the Care Plan visit.',
-            ['readiness-sweep', 'care-plan-review']),
+            ['readiness-sweep']),
           phaseNode('483-during', 'treat', '99483 care plan visit execution',
             'Provider signs Care Plan Visit note same business day with all ten required elements + medical-necessity statement.',
-            ['dcm', 'guide-plan']),
+            ['deliver-prep-packet', 'conduct-483']),
           phaseNode('483-monitor', 'monitor', '99483 element + adherence monitoring',
             'Ten required care-plan elements verified; adherence and escalations tracked weekly post-visit.',
             ['cp-adherence']),
           phaseNode('483-post', 'outcome', '99483 post-visit extraction',
             'Care Coordination routes follow-up actions to owners and books downstream visits within 48 hours of signed note.',
-            ['guide-compliance']),
+            ['verify-elements', 'verify-orders', 'route-follow-ups']),
         ],
       },
       '99215': {
@@ -409,20 +436,20 @@
         hex: '#5C2D2A', // plum
         phases: [
           phaseNode('215-pre', 'assess', '99215 pre-visit review',
-            'MA confirms outstanding labs + biomarkers; provider reviews MRI report one week pre-visit.',
-            ['med-review', 'biomarkers']),
+            'MA confirms outstanding labs + biomarkers; provider reviews MRI report and reassessment cadence one week pre-visit.',
+            ['med-review', 'biomarkers', 'mri-reviewed', 'cognitive-reassess']),
           phaseNode('215-gate', 'decide', '99215 adherence + reassessment decision',
             'Below-threshold adherence flagged; six-month cognitive reassessment cadence confirmed before the visit.',
             ['adherence', 'cdr-fast']),
           phaseNode('215-during', 'treat', '99215 follow-up execution',
             'Provider signs follow-up note in Athena same business day with time-spent captured.',
-            ['bpsd-mgmt', 'med-adj']),
+            ['deliver-prep-packet', 'conduct-215', 'bpsd-mgmt']),
           phaseNode('215-monitor', 'monitor', '99215 digital twin + BPSD monitoring',
             'Digital Twin progression refreshed; BPSD frequency logged and trended for the next visit.',
             ['bpsd-freq', 'digital-twin']),
           phaseNode('215-post', 'outcome', '99215 post-visit safety mitigation',
             'Care Coordination routes post-visit safety mitigation tasks within 1 business day of signed note.',
-            ['prevent-hosp']),
+            ['verify-orders', 'confirm-scheduling', 'route-safety']),
         ],
       },
       'guide': {
@@ -626,8 +653,8 @@
                         : { backgroundColor: 'rgba(251,77,23,0.08)', border: '1px solid rgba(251,77,23,0.30)' };
 
                       const nestedCount = (p.nestedFlow && p.nestedFlow.length) || 0;
-                      return (
-                        <div key={p.id}>
+                      const inner = (
+                        <>
                           <div
                             className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[14px] transition-colors"
                             style={rowStyle}
@@ -678,8 +705,37 @@
                               ))}
                             </div>
                           )}
-                        </div>
+                        </>
                       );
+
+                      if (p.precondition) {
+                        return (
+                          <div
+                            key={p.id}
+                            className="rounded-xl p-2.5 animate-fade-in-up"
+                            style={{
+                              backgroundColor: 'rgba(168, 67, 31, 0.05)',
+                              border: '1px dashed rgba(168, 67, 31, 0.40)',
+                            }}
+                          >
+                            <div className="flex items-start gap-2.5 mb-2 px-1">
+                              <span
+                                className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full mt-0.5"
+                                style={{ backgroundColor: 'rgba(168, 67, 31, 0.15)', color: '#A8431F' }}
+                              >
+                                <IconClock size={11} />
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <div className="eyebrow" style={{ color: '#A8431F' }}>Conditional · gated by data</div>
+                                <div className="text-[12px] text-ink mt-0.5 leading-snug">{p.precondition}</div>
+                              </div>
+                            </div>
+                            {inner}
+                          </div>
+                        );
+                      }
+
+                      return <div key={p.id}>{inner}</div>;
                     })}
                     {enabledItems.length === 0 && (
                       <p className="text-[13px] text-inkMuted italic">No workflows clipped in yet — pick from the basket below.</p>
@@ -877,17 +933,16 @@
           'Completion check + reminder cadence at T-14, T-7, T-3',
           'Caregiver engagement: setup call, screen-share assist, prompt support',
           'Score documented in Athena same business day',
-          'Care nav re-administers in-clinic if remote declined',
         ],
-      },
-      {
-        id: 'moca-clinic',
-        label: 'MoCA in-clinic administration',
-        nestedFlow: [
-          'Trained MA administers in exam room day-of-visit',
-          'Caregiver attends to provide collateral history',
-          'Score documented before patient leaves visit',
-        ],
+        fallback: {
+          label: 'MoCA in-clinic administration',
+          trigger: 'If remote screen not completed by T-3',
+          nestedFlow: [
+            'Trained MA administers in exam room day-of-visit',
+            'Caregiver attends to provide collateral history',
+            'Score documented before patient leaves visit',
+          ],
+        },
       },
       {
         id: 'mis',
@@ -1053,6 +1108,43 @@
                           </div>
                         ))}
                       </div>
+
+                      {t.fallback && (
+                        <div
+                          className="ml-3 mt-2 mb-1 rounded-xl p-3 animate-fade-in-up"
+                          style={{
+                            backgroundColor: 'rgba(168, 67, 31, 0.04)',
+                            border: '1px dashed rgba(168, 67, 31, 0.45)',
+                          }}
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <span
+                              className="inline-flex items-center justify-center w-5 h-5 rounded-full shrink-0"
+                              style={{ backgroundColor: 'rgba(168, 67, 31, 0.15)', color: '#A8431F' }}
+                            >
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="23 4 23 10 17 10"></polyline>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                              </svg>
+                            </span>
+                            <div className="flex flex-col leading-tight">
+                              <span className="eyebrow" style={{ color: '#A8431F' }}>Fallback workflow</span>
+                              <span className="text-[11px] text-inkSoft mt-0.5">{t.fallback.trigger}</span>
+                            </div>
+                          </div>
+                          <div className="text-[13.5px] text-ink font-medium mb-1">{t.fallback.label}</div>
+                          <div className="text-[10.5px] mb-0.5 flex items-center gap-1.5" style={{ color: '#A8431F' }}>
+                            <IconUsers size={11} />
+                            <span>{t.fallback.nestedFlow.length} dependent task{t.fallback.nestedFlow.length === 1 ? '' : 's'} attached</span>
+                          </div>
+                          {t.fallback.nestedFlow.map((step, i) => (
+                            <div key={i} className="text-[12px] text-inkSoft py-0.5 flex items-start gap-2 leading-snug">
+                              <span className="shrink-0 mt-0.5 opacity-70" style={{ color: '#A8431F' }}><IconCornerDown /></span>
+                              <span>{step}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1170,22 +1262,34 @@
       );
     };
 
-    // Between two visits inside the same pathway — a small "links into" connector
-    // pill colored by the next visit.
+    // Between two visits inside the same pathway — a note-driven routing card
+    // colored by the next visit. The card communicates that the transition is
+    // driven by analysis of the prior visit note, with the detected CPT shown.
     const VisitLink = ({ nextVisit }) => (
-      <div className="flex flex-col items-center my-2 pointer-events-none">
-        <div className="w-px h-5" style={{ backgroundImage: `linear-gradient(to bottom, ${nextVisit.hex}aa, ${nextVisit.hex}55)` }}></div>
+      <div className="flex flex-col items-center my-2 pointer-events-none w-full">
+        <div className="w-px h-4" style={{ backgroundImage: `linear-gradient(to bottom, ${nextVisit.hex}aa, ${nextVisit.hex}55)` }}></div>
         <div
-          className="flex items-center gap-2 px-3 py-1 rounded-pill bg-cream"
-          style={{ border: `1.5px solid ${nextVisit.hex}55`, color: nextVisit.hex }}
+          className="w-full rounded-xl px-3 py-2.5 flex items-start gap-2.5 bg-cream"
+          style={{ border: `1px dashed ${nextVisit.hex}66` }}
         >
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-            <polyline points="12 5 19 12 12 19"></polyline>
-          </svg>
-          <span className="eyebrow" style={{ color: nextVisit.hex }}>Links into {nextVisit.code}</span>
+          <span
+            className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-lg mt-0.5"
+            style={{ backgroundColor: `${nextVisit.hex}14`, color: nextVisit.hex }}
+          >
+            <IconFileText size={14} />
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="eyebrow" style={{ color: nextVisit.hex }}>Note-driven routing</div>
+            <div className="text-[12.5px] text-ink mt-0.5 leading-snug">
+              Visit note analyzed ·{' '}
+              <span className="font-semibold" style={{ color: nextVisit.hex }}>{nextVisit.code} detected</span>
+            </div>
+            <div className="text-[11px] text-inkMuted mt-0.5 leading-snug">
+              Routes patient into {nextVisit.label.toLowerCase()}.
+            </div>
+          </div>
         </div>
-        <div className="w-px h-5" style={{ backgroundImage: `linear-gradient(to bottom, ${nextVisit.hex}55, ${nextVisit.hex}aa)` }}></div>
+        <div className="w-px h-4" style={{ backgroundImage: `linear-gradient(to bottom, ${nextVisit.hex}55, ${nextVisit.hex}aa)` }}></div>
       </div>
     );
 
