@@ -311,20 +311,6 @@
       ],
     };
 
-    // Patient state variables — facts about the patient (age, diagnosis) that the
-    // system uses to ROUTE referrals into pathways. These live on the Agilon
-    // referral node, not inside visit phases. Each carries a tri-state like
-    // every other workflow row: Off (ignore), Approval (track + gate routing),
-    // On (track + auto-route).
-    const PATIENT_VARIABLES = [
-      { id: 'age-65',     label: 'Age 65+',                    nestedFlow: ['Demographics confirmed at enrollment', 'High-age cohort flagged for routing'] },
-      { id: 'dem-mild',   label: 'Dementia (mild) stage',      nestedFlow: ['CDR ≤ 1 confirmed', 'Triggers Mild pathway routing'] },
-      { id: 'dem-mod',    label: 'Dementia (moderate) stage',  nestedFlow: ['CDR = 2 confirmed', 'Triggers Moderate pathway routing'] },
-      { id: 'dem-sev',    label: 'Dementia (severe) stage',    nestedFlow: ['CDR ≥ 3 confirmed', 'Triggers Severe pathway routing'], locked: true, lockReason: 'Neurology specialist confirmation' },
-      { id: 'caregiver',  label: 'Primary caregiver attached', nestedFlow: ['Caregiver named at intake', 'Used to gate caregiver-dependent protocols'] },
-      { id: 'guide-elig', label: 'CMS GUIDE eligibility',      nestedFlow: ['Medicare A+B verified', 'Not in MA / PACE / hospice', 'Triggers GUIDE overlay'] },
-    ];
-
     // Tri-state values for the enabled-workflow control.
     const STATE_OFF = 'off';
     const STATE_APPROVAL = 'approval';
@@ -444,9 +430,8 @@
     };
     const PATHWAY_IDS = ['mild', 'moderate', 'severe', 'guide'];
 
-    // Workflows the referral root can enable — the protocols Agilon referrals are
-    // allowed to follow. Each enabled pathway represents a protocol the system may
-    // route into based on the patient's data at runtime.
+    // Workflows the referral root toggles. Each pathway is a protocol that
+    // Agilon referrals may follow; enabling one opens its column in the canvas.
     const WORKFLOWS = PATHWAY_IDS.map(id => ({ id, ...DEMO_PATHWAYS[id] }));
 
     // Build the canonical phase node ID for a given pathway + visit + phase. Each
@@ -608,27 +593,11 @@
       );
     };
 
-    // The referral root card. Holds two sections:
-    //   1. Patient variables — facts about the patient that trigger which
-    //      pathways the system routes into.
-    //   2. Enabled pathways — which pathway protocols are permitted to fire.
-    const RootReferralCard = ({
-      workflowStates, onSetWorkflowState,
-      variableStates, onSetVariableState,
-    }) => {
+    // The referral root card. Each row toggles whether a pathway is permitted
+    // for Agilon referrals; enabling one opens its column in the canvas.
+    const RootReferralCard = ({ workflowStates, onSetWorkflowState }) => {
       const assessHex = NODE_TYPES.find(t => t.id === 'assess').hex;
-      const enabledPathwayCount = WORKFLOWS.filter(w => (workflowStates[w.id] || STATE_OFF) !== STATE_OFF).length;
-      const enabledVarCount = PATIENT_VARIABLES.filter(v => (variableStates[v.id] || STATE_OFF) !== STATE_OFF).length;
-
-      const rowStyleFor = (state, accentHex) => {
-        const isOn = state === STATE_ON;
-        const isApproval = state === STATE_APPROVAL;
-        return isOn
-          ? { backgroundColor: '#FBF7F0', border: `1px solid ${accentHex || 'rgba(8,54,48,0.30)'}`, boxShadow: `inset 0 0 0 1px ${accentHex ? accentHex + '33' : 'rgba(8,54,48,0.10)'}` }
-          : isApproval
-            ? { backgroundColor: 'rgba(251,77,23,0.08)', border: '1px solid rgba(251,77,23,0.30)' }
-            : { backgroundColor: 'transparent', border: '1px solid transparent' };
-      };
+      const enabledCount = WORKFLOWS.filter(w => (workflowStates[w.id] || STATE_OFF) !== STATE_OFF).length;
 
       return (
         <div className="relative flex flex-col items-center w-full">
@@ -645,85 +614,44 @@
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-display font-medium text-[1.3125rem] text-ink leading-tight">Agilon referral</h3>
-                <p className="text-[13px] text-inkSoft mt-1.5 leading-snug">Patient data triggers which pathways the system routes into.</p>
               </div>
             </div>
 
-            {/* Section 1 — patient state variables that trigger routing */}
             <div className="mt-3 pt-4 border-t border-soft-strong">
               <div className="eyebrow mb-3 flex items-center justify-between">
-                <span>Patient variables · trigger pathways</span>
-                <span className="text-inkMuted normal-case tracking-normal font-normal text-[11px]">{enabledVarCount} tracked</span>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                {PATIENT_VARIABLES.map(v => {
-                  const state = variableStates[v.id] || STATE_OFF;
-                  const isOn = state === STATE_ON;
-                  const isApproval = state === STATE_APPROVAL;
-                  return (
-                    <div key={v.id}>
-                      <div
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[14px] transition-colors"
-                        style={rowStyleFor(state, null)}
-                      >
-                        <TriStateControl
-                          value={state}
-                          onChange={(s) => onSetVariableState(v.id, s)}
-                        />
-                        <span className="flex-1 truncate text-ink">{v.label}</span>
-                        {v.locked && isApproval && (
-                          <span className="eyebrow text-accent-text shrink-0 hidden md:inline" title={v.lockReason}>
-                            {v.lockReason}
-                          </span>
-                        )}
-                      </div>
-                      {(isOn || isApproval) && v.nestedFlow && (
-                        <div
-                          className="ml-3 mt-1.5 mb-1.5 pl-3 border-l-2 animate-fade-in-up"
-                          style={{ borderColor: isApproval ? 'rgba(251,77,23,0.55)' : 'rgba(8,54,48,0.40)' }}
-                        >
-                          {v.nestedFlow.map((step, i) => (
-                            <div key={i} className="text-[12px] text-inkSoft py-0.5 flex items-start gap-2 leading-snug">
-                              <span className="shrink-0 mt-0.5 opacity-70" style={{ color: isApproval ? '#c93a0e' : '#083630' }}><IconCornerDown /></span>
-                              <span>{step}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Section 2 — pathways the referral may route into */}
-            <div className="mt-3 pt-4 border-t border-soft-strong">
-              <div className="eyebrow mb-3 flex items-center justify-between">
-                <span>Enabled pathways</span>
-                <span className="text-inkMuted normal-case tracking-normal font-normal text-[11px]">{enabledPathwayCount} enabled</span>
+                <span>Enabled workflows</span>
+                <span className="text-inkMuted normal-case tracking-normal font-normal text-[11px]">{enabledCount} enabled</span>
               </div>
               <div className="flex flex-col gap-1.5">
                 {WORKFLOWS.map(w => {
                   const state = workflowStates[w.id] || STATE_OFF;
                   const isOn = state === STATE_ON;
                   const isApproval = state === STATE_APPROVAL;
+                  const rowStyle = isOn
+                    ? { backgroundColor: '#FBF7F0', border: `1px solid ${w.hex}`, boxShadow: `inset 0 0 0 1px ${w.hex}33` }
+                    : isApproval
+                      ? { backgroundColor: 'rgba(251,77,23,0.08)', border: '1px solid rgba(251,77,23,0.30)' }
+                      : { backgroundColor: 'transparent', border: '1px solid transparent' };
+
                   return (
                     <div
                       key={w.id}
                       className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[14px] transition-colors"
-                      style={rowStyleFor(state, w.hex)}
+                      style={rowStyle}
                     >
                       <TriStateControl
                         value={state}
                         onChange={(s) => onSetWorkflowState(w.id, s)}
                       />
-                      <span
-                        className="flex-1 truncate font-semibold"
-                        style={isOn ? { color: w.hex } : isApproval ? { color: '#c93a0e' } : { color: '#201E17' }}
-                      >
-                        {w.label}
-                      </span>
-                      <span className="text-[11px] text-inkMuted shrink-0 hidden sm:inline">{w.description}</span>
+                      <div className="flex-1 min-w-0">
+                        <div
+                          className="font-semibold leading-tight"
+                          style={isOn ? { color: w.hex } : isApproval ? { color: '#c93a0e' } : { color: '#201E17' }}
+                        >
+                          {w.label}
+                        </div>
+                        <div className="text-[11px] text-inkMuted leading-snug mt-0.5">{w.description}</div>
+                      </div>
                     </div>
                   );
                 })}
@@ -836,7 +764,7 @@
       </div>
     );
 
-    const DemoCanvas = ({ activePathway, workflowStates, onSetWorkflowState, variableStates, onSetVariableState, onSetPrescribableState }) => {
+    const DemoCanvas = ({ activePathway, workflowStates, onSetWorkflowState, onSetPrescribableState }) => {
       const visiblePathwayIds = PATHWAY_IDS.filter(id => (workflowStates[id] || STATE_OFF) !== STATE_OFF);
       const count = visiblePathwayIds.length;
       const hasAny = count > 0;
@@ -854,8 +782,6 @@
             <RootReferralCard
               workflowStates={workflowStates}
               onSetWorkflowState={onSetWorkflowState}
-              variableStates={variableStates}
-              onSetVariableState={onSetVariableState}
             />
           </div>
 
@@ -947,31 +873,19 @@
       const [mode, setMode] = useState('demo');
       // Per-pathway state: 'off' | 'approval' | 'on'. Default: moderate + GUIDE
       // are on; mild + severe are off.
+      // Per-pathway state: 'off' | 'approval' | 'on'. Default: moderate + GUIDE
+      // are on; mild + severe are off.
       const [workflowStates, setWorkflowStates] = useState({
         mild: STATE_OFF,
         moderate: STATE_ON,
         severe: STATE_OFF,
         guide: STATE_ON,
       });
-      // Patient state variables tracked on the Agilon referral root. The system
-      // uses these to decide which pathway fires for a given referral.
-      const [variableStates, setVariableStates] = useState({
-        'age-65':    STATE_ON,
-        'dem-mild':  STATE_OFF,
-        'dem-mod':   STATE_ON,
-        'dem-sev':   STATE_APPROVAL,
-        'caregiver': STATE_ON,
-        'guide-elig': STATE_ON,
-      });
       const [demoOverrides, setDemoOverrides] = useState({});
       const scrollRef = useRef(null);
 
       const setWorkflowState = (id, state) => {
         setWorkflowStates(prev => ({ ...prev, [id]: state }));
-      };
-
-      const setVariableState = (id, state) => {
-        setVariableStates(prev => ({ ...prev, [id]: state }));
       };
 
       const addNode = (nodeType) => {
@@ -1125,8 +1039,6 @@
                 activePathway={activePathway}
                 workflowStates={workflowStates}
                 onSetWorkflowState={setWorkflowState}
-                variableStates={variableStates}
-                onSetVariableState={setVariableState}
                 onSetPrescribableState={setPrescribableState}
               />
             )}
