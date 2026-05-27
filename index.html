@@ -510,28 +510,51 @@
     );
 
     // Compact tri-state pill: shows the current state as a single badge; click
-    // opens a small popover with the three options. Frees up horizontal space
-    // for the workflow label so it always reads.
+    // opens a small popover with the three options. The popover uses position:
+    // fixed (with coords from the trigger's bounding rect) so it escapes the
+    // parent NodeCard's stacking context and renders above subsequent cards.
     const TriStateControl = ({ value, onChange }) => {
       const v = value || STATE_OFF;
       const [open, setOpen] = useState(false);
-      const ref = useRef(null);
+      const [pos, setPos] = useState({ top: 0, left: 0 });
+      const triggerRef = useRef(null);
+      const popoverRef = useRef(null);
+
       useEffect(() => {
         if (!open) return;
         const onDoc = (e) => {
-          if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+          if (popoverRef.current && popoverRef.current.contains(e.target)) return;
+          if (triggerRef.current && triggerRef.current.contains(e.target)) return;
+          setOpen(false);
         };
+        const onScrollOrResize = () => setOpen(false);
         document.addEventListener('mousedown', onDoc);
-        return () => document.removeEventListener('mousedown', onDoc);
+        window.addEventListener('scroll', onScrollOrResize, true);
+        window.addEventListener('resize', onScrollOrResize);
+        return () => {
+          document.removeEventListener('mousedown', onDoc);
+          window.removeEventListener('scroll', onScrollOrResize, true);
+          window.removeEventListener('resize', onScrollOrResize);
+        };
       }, [open]);
+
+      const handleToggle = (e) => {
+        e.stopPropagation();
+        if (!open && triggerRef.current) {
+          const rect = triggerRef.current.getBoundingClientRect();
+          setPos({ top: rect.bottom + 4, left: rect.left });
+        }
+        setOpen(o => !o);
+      };
 
       const current = STATE_OPTIONS.find(o => o.id === v) || STATE_OPTIONS[0];
       const c = STATE_COLORS[v];
       return (
-        <div className="relative shrink-0" ref={ref} onClick={(e) => e.stopPropagation()}>
+        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
+            ref={triggerRef}
             type="button"
-            onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+            onClick={handleToggle}
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-pill text-[11px] font-semibold transition-colors"
             style={{
               backgroundColor: c.bg,
@@ -551,9 +574,13 @@
           </button>
           {open && (
             <div
+              ref={popoverRef}
               role="listbox"
-              className="absolute top-full left-0 mt-1 bg-cream rounded-xl p-1 z-50 animate-fade-in-up"
+              className="fixed bg-cream rounded-xl p-1 animate-fade-in-up"
               style={{
+                top: `${pos.top}px`,
+                left: `${pos.left}px`,
+                zIndex: 9999,
                 border: '1px solid rgba(32,30,23,0.14)',
                 boxShadow: '0 8px 24px -8px rgba(32, 30, 23, 0.22), 0 2px 6px rgba(32,30,23,0.08)',
                 minWidth: '120px',
@@ -1327,21 +1354,43 @@
     // node at that position in the visit.
     const InsertSlot = ({ onAdd }) => {
       const [open, setOpen] = useState(false);
-      const ref = useRef(null);
+      const [pos, setPos] = useState({ top: 0, left: 0 });
+      const triggerRef = useRef(null);
+      const popoverRef = useRef(null);
+
       useEffect(() => {
         if (!open) return;
         const onDoc = (e) => {
-          if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+          if (popoverRef.current && popoverRef.current.contains(e.target)) return;
+          if (triggerRef.current && triggerRef.current.contains(e.target)) return;
+          setOpen(false);
         };
+        const onScrollOrResize = () => setOpen(false);
         document.addEventListener('mousedown', onDoc);
-        return () => document.removeEventListener('mousedown', onDoc);
+        window.addEventListener('scroll', onScrollOrResize, true);
+        window.addEventListener('resize', onScrollOrResize);
+        return () => {
+          document.removeEventListener('mousedown', onDoc);
+          window.removeEventListener('scroll', onScrollOrResize, true);
+          window.removeEventListener('resize', onScrollOrResize);
+        };
       }, [open]);
 
+      const handleToggle = (e) => {
+        e.stopPropagation();
+        if (!open && triggerRef.current) {
+          const rect = triggerRef.current.getBoundingClientRect();
+          setPos({ top: rect.bottom + 4, left: rect.left + rect.width / 2 });
+        }
+        setOpen(o => !o);
+      };
+
       return (
-        <div className="relative flex flex-col items-center my-1 group" ref={ref}>
+        <div className="flex flex-col items-center my-1 group">
           <button
+            ref={triggerRef}
             type="button"
-            onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+            onClick={handleToggle}
             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-pill text-[10.5px] font-semibold transition-all ${
               open ? 'opacity-100' : 'opacity-40 group-hover:opacity-100'
             }`}
@@ -1360,9 +1409,14 @@
           </button>
           {open && (
             <div
+              ref={popoverRef}
               role="listbox"
-              className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-cream rounded-xl p-1 z-50 animate-fade-in-up"
+              className="fixed bg-cream rounded-xl p-1 animate-fade-in-up"
               style={{
+                top: `${pos.top}px`,
+                left: `${pos.left}px`,
+                transform: 'translateX(-50%)',
+                zIndex: 9999,
                 border: '1px solid rgba(32,30,23,0.14)',
                 boxShadow: '0 8px 24px -8px rgba(32, 30, 23, 0.22), 0 2px 6px rgba(32,30,23,0.08)',
                 minWidth: '180px',
