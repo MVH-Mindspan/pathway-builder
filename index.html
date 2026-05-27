@@ -2960,7 +2960,7 @@
 
       return (
         <div className="w-full overflow-x-auto">
-          <div className="w-full min-w-0 sm:min-w-[1280px] flex flex-col sm:flex-row items-stretch justify-center gap-2 sm:gap-0">
+          <div className="mx-auto flex flex-col sm:flex-row items-stretch justify-center gap-3 sm:gap-0 sm:w-max">
             {boxes.map((box, i) => {
               const visible = isBoxVisible(box);
               const isClickable = clickableBoxIds.includes(box.id);
@@ -2974,16 +2974,16 @@
               const isAnchor = !!box.caption;
 
               const baseStyle = isDecisionEmphasised
-                ? { backgroundColor: accent, color: '#FBF7F0', border: `2px dashed ${accentText}` }
+                ? { backgroundColor: accent, color: '#FBF7F0', border: `2px dashed ${accentText}`, minHeight: '210px' }
                 : isDecisionGate
-                  ? { backgroundColor: '#FBF7F0', color: '#201E17', border: `1.5px solid ${accent}`, boxShadow: `inset 0 0 0 1px ${accent}33` }
+                  ? { backgroundColor: '#FBF7F0', color: '#201E17', border: `1.5px solid ${accent}`, boxShadow: `inset 0 0 0 1px ${accent}33`, minHeight: '210px' }
                   : isSelected
-                    ? { backgroundColor: '#FBF7F0', color: '#201E17', border: `2px solid ${accent}`, boxShadow: `0 0 0 3px rgba(251,77,23,0.15)` }
-                    : { backgroundColor: '#FBF7F0', color: '#201E17', border: '1px solid rgba(32,30,23,0.18)' };
+                    ? { backgroundColor: '#FBF7F0', color: '#201E17', border: `2px solid ${accent}`, boxShadow: `0 0 0 3px rgba(251,77,23,0.15)`, minHeight: '210px' }
+                    : { backgroundColor: '#FBF7F0', color: '#201E17', border: '1px solid rgba(32,30,23,0.18)', minHeight: '210px' };
 
               const widthClass = isAnchor
-                ? 'max-w-[200px] sm:max-w-[170px] sm:flex-[1.4]'
-                : 'max-w-[200px] sm:max-w-[120px] sm:flex-[1]';
+                ? 'w-full sm:w-[220px] sm:min-w-[220px] sm:max-w-[220px] sm:grow-0 sm:shrink-0'
+                : 'w-full sm:w-[150px] sm:min-w-[150px] sm:max-w-[150px] sm:grow-0 sm:shrink-0';
 
               return (
                 <React.Fragment key={box.id}>
@@ -2995,17 +2995,19 @@
                     aria-hidden={!visible}
                     tabIndex={visible ? 0 : -1}
                     data-visible={visible ? 'true' : 'false'}
-                    className={`demo-pathway-box relative min-w-0 mx-auto sm:mx-0 w-full sm:w-auto px-3 py-3 rounded-[0.875rem] text-center ${widthClass} ${
+                    className={`demo-pathway-box relative min-w-0 mx-auto sm:mx-0 w-full sm:w-auto px-4 py-5 rounded-[1rem] text-center flex flex-col items-stretch ${
+                      isAnchor ? 'justify-start' : 'justify-center'
+                    } ${widthClass} ${
                       isClickable ? 'cursor-pointer hover:-translate-y-0.5' : 'cursor-default'
                     }`}
                     style={baseStyle}
                   >
-                    <div className="text-[12.5px] font-semibold leading-tight">
+                    <div className="text-[14px] font-semibold leading-tight">
                       {box.label}
                     </div>
                     {box.sublabel && (
                       <div
-                        className="text-[10.5px] mt-0.5 leading-snug"
+                        className="text-[11.5px] mt-1 leading-snug"
                         style={isDecisionEmphasised ? { color: 'rgba(251,247,240,0.85)' } : { color: '#5F584A' }}
                       >
                         {box.sublabel}
@@ -3013,7 +3015,7 @@
                     )}
                     {isDecisionGate && (
                       <div
-                        className="text-[9.5px] mt-1 uppercase tracking-[0.10em] font-semibold"
+                        className="text-[10px] mt-1.5 uppercase tracking-[0.10em] font-semibold"
                         style={isDecisionEmphasised ? { color: '#FBF7F0' } : { color: accentText }}
                       >
                         Decision required
@@ -3021,7 +3023,7 @@
                     )}
                     {isClickable && !isDecisionGate && (
                       <div
-                        className="text-[9.5px] mt-1 uppercase tracking-[0.10em] font-semibold"
+                        className="text-[10px] mt-1.5 uppercase tracking-[0.10em] font-semibold"
                         style={{ color: accentText }}
                       >
                         {isSelected ? 'Showing' : 'View →'}
@@ -3029,7 +3031,7 @@
                     )}
                     {box.caption && (
                       <div
-                        className="text-[10.5px] mt-2 pt-2 leading-snug text-left"
+                        className="text-[11.5px] mt-3 pt-3 leading-snug text-left"
                         style={
                           isDecisionEmphasised
                             ? { color: 'rgba(251,247,240,0.92)', borderTop: '1px solid rgba(251,247,240,0.35)' }
@@ -3041,7 +3043,7 @@
                     )}
                     {ctx && (
                       <div
-                        className="text-[10.5px] mt-2 pt-2 leading-snug text-left"
+                        className="text-[11.5px] mt-3 pt-3 leading-snug text-left"
                         style={
                           isDecisionEmphasised
                             ? { color: 'rgba(251,247,240,0.92)', borderTop: '1px solid rgba(251,247,240,0.35)' }
@@ -3055,15 +3057,15 @@
                 {!isLastBox && (
                   <div
                     data-visible={connectorVisible ? 'true' : 'false'}
-                    className="demo-pathway-connector flex items-center justify-center self-center sm:self-stretch sm:px-1.5"
+                    className="demo-pathway-connector flex items-center justify-center self-center sm:self-stretch sm:px-2"
                     aria-hidden="true"
                   >
                     <div
-                      className="hidden sm:block w-6"
+                      className="hidden sm:block w-8"
                       style={{ borderTop: '2px dashed rgba(32,30,23,0.32)' }}
                     ></div>
                     <div
-                      className="sm:hidden h-4"
+                      className="sm:hidden h-5"
                       style={{ borderLeft: '2px dashed rgba(32,30,23,0.32)' }}
                     ></div>
                   </div>
