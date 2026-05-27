@@ -210,12 +210,57 @@
       to   { opacity: 1; transform: translateY(0); }
     }
 
+    /* Demo pathway box + connector transitions — boxes and the dashed
+       connectors between them fade + collapse over ~200ms when a
+       /build toggle or view change hides them, then the flex parent
+       reflows naturally as widths shrink. No jump-cut between views. */
+    .demo-pathway-box {
+      transition:
+        opacity 0.2s ease-out,
+        max-width 0.25s ease-out,
+        max-height 0.25s ease-out,
+        transform 0.2s ease-out,
+        padding 0.2s ease-out,
+        margin 0.2s ease-out;
+      overflow: hidden;
+    }
+    .demo-pathway-box[data-visible="false"] {
+      opacity: 0;
+      max-width: 0 !important;
+      max-height: 0 !important;
+      transform: scale(0.7);
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
+      padding-left: 0 !important;
+      padding-right: 0 !important;
+      margin: 0 !important;
+      pointer-events: none;
+      border-width: 0 !important;
+    }
+    .demo-pathway-connector {
+      transition:
+        opacity 0.2s ease-out,
+        max-width 0.25s ease-out,
+        max-height 0.25s ease-out,
+        padding 0.2s ease-out,
+        margin 0.2s ease-out;
+      overflow: hidden;
+    }
+    .demo-pathway-connector[data-visible="false"] {
+      opacity: 0;
+      max-width: 0 !important;
+      max-height: 0 !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+
     /* Reduced-motion: kill ambient animations */
     @media (prefers-reduced-motion: reduce) {
       .animate-fade-in-up { animation: none; opacity: 1; }
       .lift-on-hover { transition: none; }
       .lift-on-hover:hover { transform: none; }
       .btn-pill, .btn-primary:hover { transition: none; transform: none; }
+      .demo-pathway-box, .demo-pathway-connector { transition: none; }
     }
 
     /* Display headings — EB Garamond, tight tracking */
@@ -2748,6 +2793,27 @@
 
     const CLICKABLE_DEMO_BOX_IDS = ['initial', 'results', 'care-plan'];
 
+    // ─────────────────────────────────────────────────────────────────
+    // /build → /demo skeleton mapping (source-of-truth, kept in lockstep
+    // with the ?debug=1 overlay).
+    //
+    // Each entry maps a /build root pathway toggle to one /demo skeleton
+    // box id. When the /build value is truthy (state !== STATE_OFF), the
+    // mapped /demo box animates in; when it goes back to STATE_OFF, the
+    // box animates out and the remaining boxes reflow over ~200ms.
+    //
+    // The three clickable highlights (initial / results / care-plan) are
+    // FIXED — they always render in /demo regardless of /build state.
+    // Any /build option not listed here is ignored silently; /demo never
+    // grows beyond DEMO_BOXES.
+    // ─────────────────────────────────────────────────────────────────
+    const BUILD_TO_DEMO_MAPPING = {
+      mild:     'intake',     // mild pathway → Patient Intake box
+      moderate: 'caregiver',  // moderate pathway → Caregiver Assessment box
+      severe:   'follow-up',  // severe pathway → Follow-up box
+      guide:    'reminder',   // CMS GUIDE overlay → Reminder if needed box
+    };
+
     const VIEW_OPTIONS = [
       { id: 'care-nav', label: 'Care Navigator' },
       { id: 'patient',  label: 'Patient / Caregiver' },
@@ -2756,25 +2822,38 @@
 
     // Pure presentational component. boxes = pathway data, viewMode filters
     // which boxes show, clickableBoxIds lights up the clickable affordance,
-    // selectedBoxId persists an accent ring on the active selection.
+    // selectedBoxId persists an accent ring on the active selection,
+    // hiddenBoxIds (a Set) lets the parent force-hide non-clickable boxes
+    // based on /build state (with 200ms fade+collapse animations).
     const PathwayDiagram = ({
       boxes,
       viewMode,
       clickableBoxIds = [],
       selectedBoxId = null,
       onBoxClick = () => {},
+      hiddenBoxIds = null,
     }) => {
-      const visibleBoxes = boxes.filter((b) => b.views.includes(viewMode));
       const accent = '#fb4d17';
       const accentText = '#c93a0e';
 
+      const isBoxVisible = (box) => {
+        if (!box.views.includes(viewMode)) return false;
+        // Clickable highlights are FIXED — never hidden by /build state.
+        if (clickableBoxIds.includes(box.id)) return true;
+        if (hiddenBoxIds && hiddenBoxIds.has(box.id)) return false;
+        return true;
+      };
+
       return (
         <div className="w-full flex flex-col sm:flex-row items-stretch justify-center gap-2 sm:gap-0">
-          {visibleBoxes.map((box, i) => {
-            const isLast = i === visibleBoxes.length - 1;
+          {boxes.map((box, i) => {
+            const visible = isBoxVisible(box);
             const isClickable = clickableBoxIds.includes(box.id);
             const isSelected = selectedBoxId === box.id;
             const isDecisionGate = box.decisionGate && viewMode === 'provider';
+            const nextBox = boxes[i + 1];
+            const connectorVisible = visible && !!nextBox && isBoxVisible(nextBox);
+            const isLastBox = i === boxes.length - 1;
 
             const baseStyle = isDecisionGate
               ? { backgroundColor: accent, color: '#FBF7F0', border: `2px dashed ${accentText}` }
@@ -2786,10 +2865,13 @@
               <React.Fragment key={box.id}>
                 <button
                   type="button"
-                  onClick={() => isClickable && onBoxClick(box.id)}
-                  disabled={!isClickable}
+                  onClick={() => visible && isClickable && onBoxClick(box.id)}
+                  disabled={!isClickable || !visible}
                   aria-pressed={isClickable ? isSelected : undefined}
-                  className={`relative flex-1 min-w-0 max-w-[180px] sm:max-w-none mx-auto sm:mx-0 w-full sm:w-auto px-3 py-3 rounded-[0.875rem] text-center transition-all ${
+                  aria-hidden={!visible}
+                  tabIndex={visible ? 0 : -1}
+                  data-visible={visible ? 'true' : 'false'}
+                  className={`demo-pathway-box relative flex-1 min-w-0 max-w-[180px] sm:max-w-none mx-auto sm:mx-0 w-full sm:w-auto px-3 py-3 rounded-[0.875rem] text-center ${
                     isClickable ? 'cursor-pointer hover:-translate-y-0.5' : 'cursor-default'
                   }`}
                   style={baseStyle}
@@ -2822,8 +2904,12 @@
                     </div>
                   )}
                 </button>
-                {!isLast && (
-                  <div className="flex items-center justify-center self-center sm:self-stretch sm:px-1.5">
+                {!isLastBox && (
+                  <div
+                    data-visible={connectorVisible ? 'true' : 'false'}
+                    className="demo-pathway-connector flex items-center justify-center self-center sm:self-stretch sm:px-1.5"
+                    aria-hidden="true"
+                  >
                     <div
                       className="hidden sm:block w-6"
                       style={{ borderTop: '2px dashed rgba(32,30,23,0.32)' }}
@@ -3101,12 +3187,114 @@
       );
     };
 
-    const DemoCanvas = () => {
+    // ?debug=1 developer overlay — renders nothing unless the URL has the
+    // debug query param. When mounted, surfaces the live BUILD_TO_DEMO_MAPPING
+    // table so a dev can see exactly which /build option drives which /demo
+    // tile and the current truthy/falsy value of each.
+    const DebugOverlay = ({ buildState }) => {
+      // Compute initial visibility synchronously (avoids a 1-frame flash on load).
+      const [visible, setVisible] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        try {
+          const params = new URLSearchParams(window.location.search);
+          if (params.get('debug') !== '1') return false;
+          if (window.sessionStorage.getItem('demo-debug-overlay-closed') === '1') return false;
+          return true;
+        } catch (e) {
+          return false;
+        }
+      });
+      const close = () => {
+        try { window.sessionStorage.setItem('demo-debug-overlay-closed', '1'); } catch (e) {}
+        setVisible(false);
+      };
+      if (!visible) return null;
+      const mappingRows = Object.entries(BUILD_TO_DEMO_MAPPING);
+      return (
+        <div
+          role="region"
+          aria-label="/build → /demo mapping debug"
+          className="fixed bottom-4 right-4 z-[9999] rounded-lg"
+          style={{
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            backgroundColor: 'rgba(20, 22, 28, 0.92)',
+            color: '#F4F4F0',
+            padding: '12px 14px',
+            maxWidth: '420px',
+            minWidth: '280px',
+            fontSize: '11.5px',
+            lineHeight: 1.55,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            backdropFilter: 'blur(6px)',
+          }}
+        >
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <span style={{ fontWeight: 600, letterSpacing: '0.10em', textTransform: 'uppercase', color: '#a7e8d0', fontSize: '10.5px' }}>
+              /build → /demo · debug
+            </span>
+            <button
+              type="button"
+              onClick={close}
+              style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.25)', color: '#F4F4F0', padding: '2px 9px', borderRadius: '999px', fontSize: '10.5px', cursor: 'pointer' }}
+              aria-label="Hide debug overlay for this session"
+            >
+              close
+            </button>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ color: '#9aa3ab', textAlign: 'left', borderBottom: '1px solid rgba(255,255,255,0.18)' }}>
+                <th style={{ padding: '4px 8px 4px 0', fontWeight: 500 }}>option</th>
+                <th style={{ padding: '4px 8px 4px 0', fontWeight: 500 }}>→ tile</th>
+                <th style={{ padding: '4px 0', fontWeight: 500 }}>value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {mappingRows.map(([key, tile]) => {
+                const value = (buildState && buildState[key]) || STATE_OFF;
+                const truthy = value !== STATE_OFF;
+                return (
+                  <tr key={key} style={{ borderBottom: '1px dotted rgba(255,255,255,0.08)' }}>
+                    <td style={{ padding: '4px 8px 4px 0', color: '#F4F4F0' }}>{key}</td>
+                    <td style={{ padding: '4px 8px 4px 0', color: '#a7e8d0' }}>{tile}</td>
+                    <td style={{ padding: '4px 0', color: truthy ? '#ffba70' : '#9aa3ab' }}>{value}</td>
+                  </tr>
+                );
+              })}
+              {CLICKABLE_DEMO_BOX_IDS.map((id) => (
+                <tr key={`fixed-${id}`} style={{ borderBottom: '1px dotted rgba(255,255,255,0.08)' }}>
+                  <td style={{ padding: '4px 8px 4px 0', color: '#9aa3ab', fontStyle: 'italic' }}>(fixed)</td>
+                  <td style={{ padding: '4px 8px 4px 0', color: '#a7e8d0' }}>{id}</td>
+                  <td style={{ padding: '4px 0', color: '#a7e8d0' }}>always</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: '8px', color: '#9aa3ab', fontSize: '10.5px' }}>
+            All other /build options ignored.
+          </div>
+        </div>
+      );
+    };
+
+    const DemoCanvas = ({ buildWorkflowStates = {} }) => {
       const [demoView, setDemoView] = useState('care-nav');
       const [selectedDemoBoxId, setSelectedDemoBoxId] = useState(null);
 
       const onBoxClick = (id) =>
         setSelectedDemoBoxId((prev) => (prev === id ? null : id));
+
+      // Compute hidden skeleton boxes from /build state, using the
+      // BUILD_TO_DEMO_MAPPING source-of-truth declared near DEMO_BOXES.
+      const hiddenBoxIds = useMemo(() => {
+        const hidden = new Set();
+        Object.entries(BUILD_TO_DEMO_MAPPING).forEach(([buildKey, boxId]) => {
+          const v = buildWorkflowStates[buildKey] || STATE_OFF;
+          if (v === STATE_OFF) hidden.add(boxId);
+        });
+        return hidden;
+      }, [buildWorkflowStates]);
 
       return (
         <div className="flex-1 overflow-y-auto p-6 sm:p-8 flex flex-col items-center scroll-smooth paper-grain">
@@ -3119,6 +3307,7 @@
                 clickableBoxIds={CLICKABLE_DEMO_BOX_IDS}
                 selectedBoxId={selectedDemoBoxId}
                 onBoxClick={onBoxClick}
+                hiddenBoxIds={hiddenBoxIds}
               />
             </div>
 
@@ -3141,6 +3330,7 @@
               </p>
             )}
           </div>
+          <DebugOverlay buildState={buildWorkflowStates} />
         </div>
       );
     };
@@ -3474,7 +3664,7 @@
                 );
               })()
             ) : (
-              <DemoCanvas />
+              <DemoCanvas buildWorkflowStates={buildWorkflowStates} />
             )}
           </div>
         </div>
