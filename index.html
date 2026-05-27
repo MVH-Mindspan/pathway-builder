@@ -563,17 +563,48 @@
       phone: '(555) 010-1948',
     };
 
-    // MoCA score timeline used by the digital-twin artifact + cross-referenced by
-    // the entry-points artifact (each card cites which delivery channel produced
-    // which datapoint). Realistic mild-decline trajectory with one rebound.
-    const MOCA_TIMELINE = [
-      { date: '2024-11-04', score: 26, channel: 'athena',    label: 'In-clinic baseline (Athena)' },
-      { date: '2025-02-18', score: 24, channel: 'mindy',     label: 'Quarterly at-home (Mindy AI)' },
-      { date: '2025-06-10', score: 22, channel: 'caregiver', label: 'Caregiver-assisted (assessment.mindspan.co)' },
-      { date: '2025-09-22', score: 23, channel: 'mindy',     label: 'Quarterly at-home (Mindy AI)' },
-      { date: '2026-01-15', score: 21, channel: 'athena',    label: 'Annual in-clinic (Athena 99483)' },
-      { date: '2026-05-06', score: 20, channel: 'caregiver', label: 'Caregiver-assisted (assessment.mindspan.co)' },
+    // Reisberg seven-stage cognitive-decline model, lifted verbatim (with
+    // softened band tints) from Mindspan-Direct-to-Consumer-Digital-Twin/
+    // src/lib/twin/stages.ts. MMSE is the underlying continuous signal the
+    // projection works in; stages are what we show the user.
+    const TWIN_STAGES = [
+      { number: 1, mmseLo: 24, mmseHi: 30, shortLabel: 'Healthy baseline', band: '#EAF1E6', ink: '#083630' },
+      { number: 2, mmseLo: 18, mmseHi: 24, shortLabel: 'Subtle changes',   band: '#F4ECD9', ink: '#083630' },
+      { number: 3, mmseLo: 14, mmseHi: 18, shortLabel: 'Early stage',      band: '#FFE9C9', ink: '#A8431F' },
+      { number: 4, mmseLo: 10, mmseHi: 14, shortLabel: 'Mid stage',        band: '#FFD6A6', ink: '#A8431F' },
+      { number: 5, mmseLo:  5, mmseHi: 10, shortLabel: 'Progressing',      band: '#FFC089', ink: '#c93a0e' },
+      { number: 6, mmseLo:  1, mmseHi:  5, shortLabel: 'Late stage',       band: '#FFA670', ink: '#fb4d17' },
+      { number: 7, mmseLo:  0, mmseHi:  1, shortLabel: 'Final stage',      band: '#FF8C55', ink: '#fb4d17' },
     ];
+
+    const MMSE_MIN = 0;
+    const MMSE_MAX = 30;
+
+    const mmseToStage = (mmse) => {
+      for (const s of TWIN_STAGES) {
+        if (mmse >= s.mmseLo && mmse < s.mmseHi) return s;
+      }
+      return mmse >= TWIN_STAGES[0].mmseHi ? TWIN_STAGES[0] : TWIN_STAGES[TWIN_STAGES.length - 1];
+    };
+
+    // Ten-year projection for the demo patient. `baseline` is the model's
+    // no-intervention prediction; `intervention` is the same model with the
+    // care-pathway interventions applied (BP control, hearing, cognitive
+    // engagement). lows/highs frame the 80% confidence band.
+    const TWIN_PROJECTION = {
+      baseline: {
+        years: [0,  2,  4,  6,  8,  10],
+        mids:  [20, 18, 16, 14, 12, 10],
+        lows:  [18, 16, 14, 12, 10,  7],
+        highs: [22, 21, 19, 17, 15, 14],
+      },
+      intervention: {
+        years: [0,  2,    4,  6,  8,    10],
+        mids:  [20, 19.5, 18, 17, 15.5, 14.5],
+        lows:  [18, 17.5, 16, 15, 13.5, 12.5],
+        highs: [22, 21.5, 20, 19, 17.5, 16.5],
+      },
+    };
 
     // Format a YYYY-MM-DD as "Mon D, YYYY" for human-readable display in artifacts.
     const formatArtifactDate = (iso) => {
@@ -586,7 +617,7 @@
     const ARTIFACT_TITLES = {
       'pre-visit-summary': 'GPS · 5-minute pre-visit briefing',
       'entry-points':      'Cognitive screening · 3 delivery channels',
-      'digital-twin':      'Digital twin · longitudinal trajectory',
+      'digital-twin':      'Digital twin · 10-year projection',
     };
 
     // Which artifact (if any) a phase-node id surfaces. Phase-node ids look like
@@ -2339,195 +2370,291 @@
       );
     };
 
-    // ---- Component 5: digital-twin longitudinal trajectory ----------------
-    // Timeline strip + inline SVG MoCA trend chart + pathway-transition
-    // annotations + plain-English AI narrative. Uses MOCA_TIMELINE (declared at
-    // the top of the script) so the data reads consistently across artifacts.
+    // ---- Component 5: digital-twin 10-year projection ---------------------
+    // Predicted cognitive trajectory in Reisberg stages, anchored at today
+    // and projected ten years forward. Chart model lifted from
+    // MVH-Mindspan/Mindspan-Direct-to-Consumer-Digital-Twin · src/components/
+    // twin/TrajectoryChart.tsx — hand-rolled SVG, Catmull-Rom smoothing, soft
+    // stage bands, confidence band as a single fill, year-10 endpoint label.
 
-    const CHANNEL_META = {
-      athena:    { label: 'Athena',    color: '#5C3994' },
-      mindy:     { label: 'Mindy AI',  color: '#083630' },
-      caregiver: { label: 'Caregiver', color: '#1a4d3e' },
+    // Catmull-Rom spline → cubic bézier path. Matches the visual softness of
+    // the source repo's chart.
+    const trajectorySmoothPath = (points) => {
+      if (points.length === 0) return '';
+      if (points.length === 1) return `M ${points[0][0]} ${points[0][1]}`;
+      const parts = [`M ${points[0][0].toFixed(1)} ${points[0][1].toFixed(1)}`];
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i - 1] ?? points[i];
+        const p1 = points[i];
+        const p2 = points[i + 1];
+        const p3 = points[i + 2] ?? p2;
+        const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+        const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+        const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+        const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+        parts.push(`C ${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`);
+      }
+      return parts.join(' ');
     };
 
-    // Map a MoCA score to the cognitive-gate severity bucket the existing
-    // pathway-builder uses. Numbers come from COG_GATE_ROUTES.
-    const severityForScore = (score) => {
-      if (score < 18) return { pathwayId: 'severe',   label: 'Severe pathway',   note: 'Score < 18 — severe dementia pathway' };
-      if (score < 23) return { pathwayId: 'moderate', label: 'Moderate pathway', note: 'Score 18–22 — moderate dementia pathway' };
-      if (score < 26) return { pathwayId: 'mild',     label: 'Mild pathway',     note: 'Score 23–26 — mild cognitive impairment pathway' };
-      return { pathwayId: null, label: 'Within range', note: 'Score ≥ 26 — no pathway-routing trigger' };
-    };
+    const TrajectoryChart = ({ scenario }) => {
+      const W = 720, H = 320, PAD_L = 132, PAD_R = 96, PAD_T = 18, PAD_B = 48;
+      const innerW = W - PAD_L - PAD_R;
+      const innerH = H - PAD_T - PAD_B;
+      const baseline = TWIN_PROJECTION.baseline;
+      const series   = TWIN_PROJECTION[scenario];
+      const showBaseline = scenario === 'intervention';
 
-    const MocaTrendChart = ({ data }) => {
-      const W = 520, H = 200, PAD_L = 36, PAD_R = 14, PAD_T = 16, PAD_B = 32;
-      const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
-      const minScore = 14, maxScore = 30;
-      const xFor = (i) => PAD_L + (i / (data.length - 1)) * innerW;
-      const yFor = (s) => PAD_T + (1 - (s - minScore) / (maxScore - minScore)) * innerH;
-      const path = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i).toFixed(1)} ${yFor(d.score).toFixed(1)}`).join(' ');
-      const gridLines = [18, 22, 26]; // severity thresholds
-      const gridLabels = { 18: 'Severe', 22: 'Moderate', 26: 'Mild' };
+      const xFor = (yr)   => PAD_L + (yr / 10) * innerW;
+      const yFor = (mmse) => PAD_T + (1 - (mmse - MMSE_MIN) / (MMSE_MAX - MMSE_MIN)) * innerH;
+
+      const heroPoints   = series.years.map((yr, i) => [xFor(yr), yFor(series.mids[i])]);
+      const heroPath     = trajectorySmoothPath(heroPoints);
+      const baselinePath = showBaseline
+        ? trajectorySmoothPath(baseline.years.map((yr, i) => [xFor(yr), yFor(baseline.mids[i])]))
+        : '';
+
+      // Confidence band = filled polygon between the high and low curves.
+      const bandTop = series.years.map((yr, i) => [xFor(yr), yFor(series.highs[i])]);
+      const bandBot = series.years.map((yr, i) => [xFor(yr), yFor(series.lows[i])]).reverse();
+      const bandPath = [
+        `M ${bandTop[0][0].toFixed(1)} ${bandTop[0][1].toFixed(1)}`,
+        ...bandTop.slice(1).map(([x, y]) => `L ${x.toFixed(1)} ${y.toFixed(1)}`),
+        ...bandBot.map(([x, y]) => `L ${x.toFixed(1)} ${y.toFixed(1)}`),
+        'Z',
+      ].join(' ');
+
+      const finalIdx = series.years.length - 1;
+      const finalMidStage     = mmseToStage(series.mids[finalIdx]);
+      const baselineFinalStage = showBaseline ? mmseToStage(baseline.mids[finalIdx]) : null;
+
+      const ariaLabel =
+        scenario === 'intervention'
+          ? `Ten-year cognitive trajectory with intervention: ${DEMO_PATIENT.name} projected to Stage ${finalMidStage.number} at year 10, versus Stage ${baselineFinalStage?.number ?? finalMidStage.number} without intervention.`
+          : `Ten-year cognitive trajectory baseline: ${DEMO_PATIENT.name} projected to Stage ${finalMidStage.number} at year 10.`;
+
       return (
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="MoCA score over time">
-          {gridLines.map((s) => (
-            <g key={s}>
-              <line
-                x1={PAD_L} x2={W - PAD_R} y1={yFor(s)} y2={yFor(s)}
-                stroke="rgba(32,30,23,0.12)" strokeWidth="1" strokeDasharray="3 4"
-              />
-              <text x={PAD_L - 6} y={yFor(s) + 3} textAnchor="end" fontSize="9" fill="#8A8270">{s}</text>
-              <text x={W - PAD_R - 4} y={yFor(s) - 3} textAnchor="end" fontSize="9" fill="#8A8270">{gridLabels[s]}</text>
-            </g>
-          ))}
-          <text x={PAD_L - 6} y={PAD_T + 6} textAnchor="end" fontSize="9" fill="#8A8270">30</text>
-          <text x={PAD_L - 6} y={H - PAD_B + 2} textAnchor="end" fontSize="9" fill="#8A8270">14</text>
-          <path d={path} fill="none" stroke="#083630" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          {data.map((d, i) => {
-            const c = CHANNEL_META[d.channel].color;
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto block" role="img" aria-label={ariaLabel}>
+          {/* Stage bands as background context */}
+          {TWIN_STAGES.map((s) => {
+            const yTop = yFor(s.mmseHi);
+            const yBot = yFor(s.mmseLo);
             return (
-              <g key={i}>
-                <circle cx={xFor(i)} cy={yFor(d.score)} r="5" fill="#FBF7F0" stroke={c} strokeWidth="2" />
-                <text x={xFor(i)} y={yFor(d.score) - 10} textAnchor="middle" fontSize="10" fontWeight="600" fill={c}>{d.score}</text>
-                <text x={xFor(i)} y={H - PAD_B + 14} textAnchor="middle" fontSize="9" fill="#5F584A">
-                  {d.date.slice(0, 7)}
-                </text>
-              </g>
+              <rect
+                key={s.number}
+                x={PAD_L} y={yTop} width={innerW} height={yBot - yTop}
+                fill={s.band} fillOpacity={0.55}
+              />
             );
           })}
+
+          {/* Confidence band — single fill */}
+          <path d={bandPath} fill="rgba(8, 54, 48, 0.16)" stroke="none" />
+
+          {/* Baseline comparison (dashed) when intervention is selected */}
+          {showBaseline && (
+            <path
+              d={baselinePath}
+              fill="none"
+              stroke="rgba(32,30,23,0.5)"
+              strokeWidth={1.5}
+              strokeDasharray="6 5"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          )}
+
+          {/* Hero trajectory */}
+          <path
+            d={heroPath}
+            fill="none"
+            stroke="#083630"
+            strokeWidth={2.5}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+
+          {/* Year-0 anchor */}
+          <circle
+            cx={xFor(0)} cy={yFor(series.mids[0])} r={5.5}
+            fill="#083630" stroke="#FBF7F0" strokeWidth={2.5}
+          />
+
+          {/* Y axis — stage labels at band midpoints, no axis line */}
+          {TWIN_STAGES.map((s) => {
+            const yMid = yFor((s.mmseLo + s.mmseHi) / 2);
+            return (
+              <text
+                key={s.number}
+                x={PAD_L - 12} y={yMid}
+                textAnchor="end" dominantBaseline="middle"
+                fontSize="10.5" fontWeight="500" fill={s.ink} fillOpacity={0.85}
+              >
+                {s.number}. {s.shortLabel}
+              </text>
+            );
+          })}
+
+          {/* X axis — Today / +2 / +4 / ... / +10 */}
+          {[0, 2, 4, 6, 8, 10].map((yr) => (
+            <text
+              key={yr}
+              x={xFor(yr)} y={H - PAD_B + 22}
+              textAnchor="middle" fontSize="11" fontWeight="500"
+              fill="rgba(32,30,23,0.55)"
+            >
+              {yr === 0 ? 'Today' : `+${yr}`}
+            </text>
+          ))}
+          <text
+            x={W - PAD_R} y={H - PAD_B + 40}
+            textAnchor="end" fontSize="10" fontStyle="italic"
+            fill="rgba(32,30,23,0.42)"
+          >
+            years from today
+          </text>
+
+          {/* Year-10 endpoint stage label */}
+          <text
+            x={xFor(10) + 8} y={yFor(series.mids[finalIdx])}
+            dominantBaseline="middle"
+            fontSize="11.5" fontWeight="600" fill={finalMidStage.ink}
+          >
+            Stage {finalMidStage.number}
+          </text>
+          {showBaseline && baselineFinalStage && baselineFinalStage.number !== finalMidStage.number && (
+            <text
+              x={xFor(10) + 8} y={yFor(baseline.mids[finalIdx])}
+              dominantBaseline="middle"
+              fontSize="10.5" fontWeight="500" fill="rgba(32,30,23,0.55)"
+            >
+              Stage {baselineFinalStage.number}
+            </text>
+          )}
         </svg>
       );
     };
 
     const DigitalTwinArtifact = () => {
-      const points = MOCA_TIMELINE;
-      const baseline = points[0].score;
-      const latest = points[points.length - 1].score;
-      const delta = latest - baseline;
-      const stabilizations = points.reduce((acc, p, i) => {
-        if (i === 0) return acc;
-        return p.score > points[i - 1].score ? acc + 1 : acc;
-      }, 0);
+      const [scenario, setScenario] = useState('baseline');
+      const series   = TWIN_PROJECTION[scenario];
+      const baseline = TWIN_PROJECTION.baseline;
 
-      // Pathway transitions: emit a row each time the severity bucket changes
-      // versus the prior datapoint.
-      const transitions = points.flatMap((p, i) => {
-        const sev = severityForScore(p.score);
-        if (i === 0) return [{ ...p, severity: sev, transition: 'baseline' }];
-        const prevSev = severityForScore(points[i - 1].score);
-        if (sev.pathwayId !== prevSev.pathwayId) {
-          return [{ ...p, severity: sev, transition: `from ${prevSev.label} → ${sev.label}` }];
-        }
-        return [];
-      });
+      const todayStage     = mmseToStage(series.mids[0]);
+      const year5Mid       = (series.mids[2] + series.mids[3]) / 2; // halfway between yr 4 and yr 6
+      const year5Stage     = mmseToStage(year5Mid);
+      const year10Stage    = mmseToStage(series.mids[5]);
+      const baselineYr10   = mmseToStage(baseline.mids[5]);
+      const stageGap       = Math.max(0, baselineYr10.number - year10Stage.number);
+
+      const tiles = [
+        { key: 'today', label: 'Today',     stage: todayStage,  sub: `MMSE ${series.mids[0]}` },
+        { key: 'y5',    label: '+5 years',  stage: year5Stage,  sub: `MMSE ~${Math.round(year5Mid)}` },
+        { key: 'y10',   label: '+10 years', stage: year10Stage, sub: `MMSE ~${series.mids[5]}` },
+      ];
 
       return (
         <div className="flex flex-col gap-4 px-5 py-5">
           <p className="text-[13px] text-inkSoft leading-relaxed">
-            The longitudinal trajectory the digital twin synthesizes for {DEMO_PATIENT.name}. Six MoCA datapoints across three delivery channels, mapped to the pathway-builder's severity routing.
+            Ten-year cognitive trajectory the digital twin projects for {DEMO_PATIENT.name},
+            anchored at today's screen and framed in Reisberg stages. The shaded band is the
+            model's 80% confidence range — real trajectories vary inside it.
           </p>
 
-          {/* Timeline strip */}
-          <section
-            className="rounded-[1.125rem] bg-cream p-4"
-            style={{ border: '1px solid rgba(32,30,23,0.10)' }}
-          >
-            <div className="eyebrow mb-3">Assessment timeline · 18 months</div>
-            <div className="flex flex-col gap-2">
-              {points.map((p) => {
-                const meta = CHANNEL_META[p.channel];
-                return (
-                  <div
-                    key={p.date}
-                    className="flex items-center gap-3 px-3 py-2 rounded-lg"
-                    style={{ backgroundColor: `${meta.color}0A`, border: `1px solid ${meta.color}33` }}
-                  >
-                    <span className="text-[11px] font-semibold w-[88px] shrink-0" style={{ color: meta.color }}>
-                      {formatArtifactDate(p.date)}
-                    </span>
-                    <span
-                      className="px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-[0.10em] shrink-0"
-                      style={{ backgroundColor: `${meta.color}1A`, color: meta.color, border: `1px solid ${meta.color}33` }}
-                    >
-                      {meta.label}
-                    </span>
-                    <span className="text-[12.5px] text-ink flex-1 min-w-0 truncate">{p.label}</span>
-                    <span className="text-[12.5px] font-semibold tabular-nums" style={{ color: meta.color }}>{p.score}/30</span>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          {/* Trended MoCA chart */}
-          <section
-            className="rounded-[1.125rem] bg-cream p-4"
-            style={{ border: '1px solid rgba(32,30,23,0.10)' }}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <div className="eyebrow">MoCA trajectory</div>
-              <div className="text-[10.5px] text-inkMuted">
-                Baseline {baseline}/30 → latest {latest}/30 · Δ {delta > 0 ? '+' : ''}{delta}
+          {/* Endpoint shoulder tiles */}
+          <div className="grid grid-cols-3 gap-2">
+            {tiles.map((t) => (
+              <div
+                key={t.key}
+                className="rounded-lg p-2.5"
+                style={{ backgroundColor: t.stage.band, border: `1px solid ${t.stage.ink}33` }}
+              >
+                <div className="text-[9.5px] uppercase tracking-[0.14em] font-semibold" style={{ color: t.stage.ink }}>
+                  {t.label}
+                </div>
+                <div className="text-[13px] font-semibold mt-0.5 leading-tight" style={{ color: t.stage.ink }}>
+                  Stage {t.stage.number}
+                </div>
+                <div className="text-[10.5px] mt-0.5 leading-snug" style={{ color: t.stage.ink, opacity: 0.78 }}>
+                  {t.stage.shortLabel}
+                </div>
+                <div className="text-[9.5px] mt-0.5 tabular-nums" style={{ color: t.stage.ink, opacity: 0.6 }}>
+                  {t.sub}
+                </div>
               </div>
-            </div>
-            <MocaTrendChart data={points} />
-            <div className="flex items-center justify-center gap-4 mt-2 text-[10.5px]">
-              {Object.entries(CHANNEL_META).map(([k, m]) => (
-                <span key={k} className="inline-flex items-center gap-1.5">
-                  <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: m.color }}></span>
-                  <span className="text-inkSoft">{m.label}</span>
-                </span>
-              ))}
-            </div>
-          </section>
+            ))}
+          </div>
 
-          {/* Pathway transitions */}
+          {/* Scenario toggle */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {[
+              { id: 'baseline',     label: 'Baseline projection' },
+              { id: 'intervention', label: 'With intervention' },
+            ].map((s) => {
+              const active = scenario === s.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setScenario(s.id)}
+                  className="text-[11px] px-2.5 py-1 rounded-full transition-colors"
+                  style={{
+                    backgroundColor: active ? '#083630' : '#FBF7F0',
+                    color: active ? '#FBF7F0' : '#083630',
+                    border: '1px solid rgba(8,54,48,0.30)',
+                    fontWeight: active ? 600 : 500,
+                  }}
+                  aria-pressed={active}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+            {scenario === 'intervention' && stageGap >= 1 && (
+              <span className="text-[10.5px] text-inkMuted ml-1">
+                Preserves {stageGap} stage{stageGap === 1 ? '' : 's'} at year 10 vs baseline
+              </span>
+            )}
+          </div>
+
+          {/* Chart */}
           <section
             className="rounded-[1.125rem] bg-cream p-4"
             style={{ border: '1px solid rgba(32,30,23,0.10)' }}
           >
-            <div className="eyebrow mb-3">Pathway transitions · severity-driven</div>
-            <div className="flex flex-col gap-2">
-              {transitions.map((t, i) => {
-                const meta = DEMO_PATHWAYS[t.severity.pathwayId] || { hex: '#5F584A', label: t.severity.label };
-                return (
-                  <div
-                    key={i}
-                    className="flex items-start gap-3 px-3 py-2 rounded-lg"
-                    style={{ backgroundColor: `${meta.hex}0d`, border: `1px solid ${meta.hex}40` }}
-                  >
-                    <span className="text-[11px] font-semibold w-[88px] shrink-0" style={{ color: meta.hex }}>
-                      {formatArtifactDate(t.date)}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[12.5px] font-semibold leading-snug" style={{ color: meta.hex }}>
-                        {t.transition === 'baseline' ? `Baseline · ${t.severity.label}` : t.transition}
-                      </div>
-                      <div className="text-[11.5px] text-inkSoft leading-snug mt-0.5">
-                        {t.severity.note} · score {t.score}/30
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            <div className="eyebrow mb-2">Predicted cognitive trajectory · 10 years</div>
+            <TrajectoryChart scenario={scenario} />
           </section>
 
-          {/* AI narrative */}
+          {/* Three audience perspectives */}
           <section
-            className="rounded-[1.125rem] p-4"
-            style={{
-              backgroundColor: 'rgba(8, 54, 48, 0.06)',
-              border: '1px solid rgba(8, 54, 48, 0.20)',
-            }}
+            className="rounded-[1.125rem] p-4 grid sm:grid-cols-3 gap-3"
+            style={{ backgroundColor: 'rgba(8,54,48,0.06)', border: '1px solid rgba(8,54,48,0.20)' }}
           >
-            <div className="eyebrow mb-2" style={{ color: '#083630' }}>What the AI sees</div>
-            <p className="text-[13px] text-ink leading-relaxed">
-              {DEMO_PATIENT.name} shows a steady mild cognitive decline of {Math.abs(delta)} points over {points.length - 1} screens across {points.length - 1 - stabilizations + 1} severity transitions in 18 months.
-              The trajectory crossed the mild→moderate threshold mid-2025; one stabilization in Q3 2025 followed a caregiver-supported screen, suggesting engagement is being sustained at home.
-              Recommend escalation to the 99483 care-plan visit and digital-twin progression monitoring at the next cycle.
-            </p>
+            {[
+              { audience: 'For the patient',  body: `Lifestyle, hearing, and blood-pressure care can bend this curve. The next 2–3 years are the highest-leverage window while ${DEMO_PATIENT.name} can fully participate in planning.` },
+              { audience: 'For caregivers',   body: 'Plan transitions while the patient can participate. The shaded band is real range — individual paths vary inside it, and small choices early compound.' },
+              { audience: 'For the care team', body: 'Today\'s stage routes to the moderate pathway clip set. Repeat MoCA at +6 months and re-project; the model updates with every channel\'s score.' },
+            ].map((p) => (
+              <div key={p.audience}>
+                <div className="eyebrow text-[10px]" style={{ color: '#083630' }}>{p.audience}</div>
+                <p className="text-[12px] text-ink leading-snug mt-1">{p.body}</p>
+              </div>
+            ))}
           </section>
+
+          <div className="text-[10.5px] text-inkMuted leading-snug">
+            Chart model adapted from{' '}
+            <a
+              href="https://github.com/MVH-Mindspan/Mindspan-Direct-to-Consumer-Digital-Twin"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline decoration-dotted hover:text-ink"
+            >
+              Mindspan Direct-to-Consumer Digital Twin
+            </a>{' '}
+            · Reisberg 7-stage scale, MMSE 0–30 underlying signal, 80% confidence band.
+          </div>
         </div>
       );
     };
