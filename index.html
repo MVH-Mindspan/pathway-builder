@@ -584,62 +584,107 @@
               </div>
             </div>
 
-            <div className="mt-3 pt-4 border-t border-soft-strong">
-              <div className="eyebrow mb-3 flex items-center justify-between">
-                <span>Enabled workflows</span>
-                <span className="text-inkMuted normal-case tracking-normal font-normal text-[11px]">{enabledCount} enabled</span>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                {prescribables.map(p => {
-                  const state = stateOf(p.id);
-                  const isOn = state === STATE_ON;
-                  const isApproval = state === STATE_APPROVAL;
+            {(() => {
+              // Split prescribables into "clipped in" (enabled or in approval)
+              // and an "other capabilities" basket.
+              const enabledItems = prescribables.filter(p => stateOf(p.id) !== STATE_OFF);
+              const availableItems = prescribables.filter(p => stateOf(p.id) === STATE_OFF);
 
-                  const rowStyle = isOn
-                    ? { backgroundColor: '#FBF7F0', border: '1px solid rgba(8,54,48,0.30)', boxShadow: 'inset 0 0 0 1px rgba(8,54,48,0.10)' }
-                    : isApproval
-                      ? { backgroundColor: 'rgba(251,77,23,0.08)', border: '1px solid rgba(251,77,23,0.30)' }
-                      : { backgroundColor: 'transparent', border: '1px solid transparent' };
+              return (
+                <div className="mt-3 pt-4 border-t border-soft-strong">
+                  <div className="eyebrow mb-3 flex items-center justify-between">
+                    <span>Enabled workflows</span>
+                    <span className="text-inkMuted normal-case tracking-normal font-normal text-[11px]">{enabledItems.length} clipped in</span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {enabledItems.map(p => {
+                      const state = stateOf(p.id);
+                      const isOn = state === STATE_ON;
+                      const isApproval = state === STATE_APPROVAL;
 
-                  return (
-                    <div key={p.id}>
-                      <div
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[14px] transition-colors"
-                        style={rowStyle}
-                      >
-                        <TriStateControl
-                          value={state}
-                          onChange={(s) => onSetState(node.id, p.id, s)}
-                        />
-                        <span className="flex-1 truncate text-ink">{p.label}</span>
-                        {p.locked && isApproval && (
-                          <span className="eyebrow text-accent-text shrink-0 hidden md:inline" title={p.lockReason}>
-                            {p.lockReason || 'Escalation required'}
-                          </span>
-                        )}
-                      </div>
+                      const rowStyle = isOn
+                        ? { backgroundColor: '#FBF7F0', border: '1px solid rgba(8,54,48,0.30)', boxShadow: 'inset 0 0 0 1px rgba(8,54,48,0.10)' }
+                        : { backgroundColor: 'rgba(251,77,23,0.08)', border: '1px solid rgba(251,77,23,0.30)' };
 
-                      {(isOn || isApproval) && p.nestedFlow && (
-                        <div
-                          className="ml-3 mt-1.5 mb-1.5 pl-3 border-l-2 animate-fade-in-up"
-                          style={{ borderColor: isApproval ? 'rgba(251,77,23,0.55)' : `${hex}55` }}
-                        >
-                          {p.nestedFlow.map((step, i) => (
-                            <div key={i} className="text-[12px] text-inkSoft py-0.5 flex items-start gap-2 leading-snug">
-                              <span className="shrink-0 mt-0.5 opacity-70" style={{ color: isApproval ? '#c93a0e' : hex }}><IconCornerDown /></span>
-                              <span>{step}</span>
+                      return (
+                        <div key={p.id}>
+                          <div
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[14px] transition-colors"
+                            style={rowStyle}
+                          >
+                            <TriStateControl
+                              value={state}
+                              onChange={(s) => onSetState(node.id, p.id, s)}
+                            />
+                            <span className="flex-1 truncate text-ink font-medium">{p.label}</span>
+                            {p.locked && isApproval && (
+                              <span className="eyebrow text-accent-text shrink-0 hidden md:inline" title={p.lockReason}>
+                                {p.lockReason || 'Escalation required'}
+                              </span>
+                            )}
+                          </div>
+
+                          {p.nestedFlow && p.nestedFlow.length > 0 && (
+                            <div
+                              className="ml-3 mt-1.5 mb-1.5 pl-3 border-l-2 animate-fade-in-up"
+                              style={{ borderColor: isApproval ? 'rgba(251,77,23,0.55)' : `${hex}55` }}
+                            >
+                              <div className="eyebrow text-[9.5px] mb-0.5" style={{ color: isApproval ? '#c93a0e' : hex }}>
+                                Nested workflow · {p.nestedFlow.length} step{p.nestedFlow.length === 1 ? '' : 's'}
+                              </div>
+                              {p.nestedFlow.map((step, i) => (
+                                <div key={i} className="text-[12px] text-inkSoft py-0.5 flex items-start gap-2 leading-snug">
+                                  <span className="shrink-0 mt-0.5 opacity-70" style={{ color: isApproval ? '#c93a0e' : hex }}><IconCornerDown /></span>
+                                  <span>{step}</span>
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          )}
                         </div>
-                      )}
+                      );
+                    })}
+                    {enabledItems.length === 0 && (
+                      <p className="text-[13px] text-inkMuted italic">No workflows clipped in yet — pick from the basket below.</p>
+                    )}
+                  </div>
+
+                  {availableItems.length > 0 && (
+                    <div className="mt-4 pt-3 border-t border-soft">
+                      <div className="eyebrow mb-2 flex items-center justify-between">
+                        <span>Other capabilities · basket</span>
+                        <span className="text-inkMuted normal-case tracking-normal font-normal text-[11px]">{availableItems.length} available</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {availableItems.map(p => {
+                          const targetState = p.locked ? STATE_APPROVAL : STATE_ON;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => onSetState(node.id, p.id, targetState)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill text-[11.5px] font-medium transition-colors"
+                              style={{
+                                backgroundColor: p.locked ? 'rgba(251,77,23,0.06)' : 'rgba(32,30,23,0.04)',
+                                border: p.locked ? '1px dashed rgba(251,77,23,0.35)' : '1px solid rgba(32,30,23,0.14)',
+                                color: p.locked ? '#c93a0e' : '#5F584A',
+                              }}
+                              title={p.locked ? `${p.label} · ${p.lockReason || 'Requires approval'}` : `Clip in ${p.label}`}
+                            >
+                              {p.locked ? <IconLock /> : <IconPlus />}
+                              <span>{p.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  );
-                })}
-                {prescribables.length === 0 && (
-                  <p className="text-[13px] text-inkMuted italic">No workflows defined for this node type.</p>
-                )}
-              </div>
-            </div>
+                  )}
+
+                  {prescribables.length === 0 && (
+                    <p className="text-[13px] text-inkMuted italic">No workflows defined for this node type.</p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           {showConnector && (
             <div className="h-7 w-px bg-gradient-to-b from-[rgba(32,30,23,0.3)] to-transparent my-1"></div>
