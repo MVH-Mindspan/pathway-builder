@@ -2835,6 +2835,64 @@
       { id: 'provider', label: 'Provider / Partner' },
     ];
 
+    // ─────────────────────────────────────────────────────────────────
+    // /demo URL state schema (shareable via copy-paste). The /demo
+    // selection state hydrates from these query params on first load
+    // and writes back on every /build toggle or view change via
+    // history.replaceState (so the back button stays clean).
+    //
+    //   ?workflows=mild,severe,guide   → truthy /build pathway toggles
+    //   ?view=care-navigator|patient-caregiver|provider-partner
+    //   ?debug=1                       → developer overlay (separate)
+    //
+    // The four /build pathway toggles are the only state serialized
+    // — the rest of /build remains local (per the Mirza simplicity
+    // rule that /demo never grows beyond DEMO_BOXES).
+    // ─────────────────────────────────────────────────────────────────
+    const URL_VIEW_TO_INTERNAL = {
+      'care-navigator':   'care-nav',
+      'patient-caregiver': 'patient',
+      'provider-partner':  'provider',
+    };
+    const INTERNAL_VIEW_TO_URL = {
+      'care-nav': 'care-navigator',
+      'patient':  'patient-caregiver',
+      'provider': 'provider-partner',
+    };
+    const URL_WORKFLOW_IDS = ['mild', 'moderate', 'severe', 'guide'];
+
+    const readDemoUrlState = () => {
+      if (typeof window === 'undefined') return { workflows: [], view: null };
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const workflowsParam = params.get('workflows');
+        const workflows = workflowsParam
+          ? workflowsParam.split(',').map((s) => s.trim()).filter((id) => URL_WORKFLOW_IDS.includes(id))
+          : [];
+        const viewParam = params.get('view');
+        const view = viewParam && URL_VIEW_TO_INTERNAL[viewParam] ? URL_VIEW_TO_INTERNAL[viewParam] : null;
+        return { workflows, view };
+      } catch (e) {
+        return { workflows: [], view: null };
+      }
+    };
+
+    const writeDemoUrlState = (buildStates, viewMode) => {
+      if (typeof window === 'undefined') return;
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const truthy = URL_WORKFLOW_IDS.filter((id) => (buildStates[id] || STATE_OFF) !== STATE_OFF);
+        if (truthy.length > 0) params.set('workflows', truthy.join(','));
+        else params.delete('workflows');
+        if (viewMode && viewMode !== 'care-nav') params.set('view', INTERNAL_VIEW_TO_URL[viewMode] || viewMode);
+        else params.delete('view');
+        const search = params.toString();
+        const next = window.location.pathname + (search ? '?' + search : '') + window.location.hash;
+        const current = window.location.pathname + window.location.search + window.location.hash;
+        if (next !== current) window.history.replaceState(null, '', next);
+      } catch (e) { /* noop */ }
+    };
+
     // Pure presentational component. boxes = pathway data, viewMode filters
     // which boxes show, clickableBoxIds lights up the clickable affordance,
     // selectedBoxId persists an accent ring on the active selection,
@@ -3308,8 +3366,7 @@
       );
     };
 
-    const DemoCanvas = ({ buildWorkflowStates = {} }) => {
-      const [demoView, setDemoView] = useState('care-nav');
+    const DemoCanvas = ({ buildWorkflowStates = {}, demoView, setDemoView }) => {
       const [selectedDemoBoxId, setSelectedDemoBoxId] = useState(null);
 
       const onBoxClick = (id) =>
@@ -3380,7 +3437,15 @@
       // Build mode tracks its own pathway toggles, independent of Demo. Build
       // starts with everything Off so the user composes from a blank slate;
       // missing keys fall through `state || STATE_OFF` in RootReferralCard.
-      const [buildWorkflowStates, setBuildWorkflowStates] = useState({});
+      // On first load we hydrate from ?workflows=... so a copied /demo URL
+      // reproduces the same Build state in another browser.
+      const [buildWorkflowStates, setBuildWorkflowStates] = useState(() => {
+        const initial = {};
+        readDemoUrlState().workflows.forEach((id) => { initial[id] = STATE_ON; });
+        return initial;
+      });
+      // Demo view toggle — hoisted to App so it round-trips through the URL.
+      const [demoView, setDemoView] = useState(() => readDemoUrlState().view || 'care-nav');
       // Build-mode artifact drawer. Demo has its own equivalent inside
       // DemoCanvas — keeping these separate avoids state bleeding across modes.
       const [buildSelectedArtifact, setBuildSelectedArtifact] = useState(null);
@@ -3390,6 +3455,17 @@
       // the first phase, 1 between phase 0 and 1, etc.
       const [customNodes, setCustomNodes] = useState({});
       const scrollRef = useRef(null);
+
+      // Mirror /build pathway toggles + active /demo view into the URL via
+      // history.replaceState so the URL is shareable. Batched through
+      // requestAnimationFrame to coalesce rapid clicks into one write.
+      useEffect(() => {
+        if (typeof window === 'undefined') return undefined;
+        const raf = window.requestAnimationFrame(() => {
+          writeDemoUrlState(buildWorkflowStates, demoView);
+        });
+        return () => window.cancelAnimationFrame(raf);
+      }, [buildWorkflowStates, demoView]);
 
       const setWorkflowState = (id, state) => {
         setWorkflowStates(prev => ({ ...prev, [id]: state }));
@@ -3695,7 +3771,11 @@
                 );
               })()
             ) : (
-              <DemoCanvas buildWorkflowStates={buildWorkflowStates} />
+              <DemoCanvas
+                buildWorkflowStates={buildWorkflowStates}
+                demoView={demoView}
+                setDemoView={setDemoView}
+              />
             )}
           </div>
         </div>
