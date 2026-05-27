@@ -2797,21 +2797,36 @@
     // /build → /demo skeleton mapping (source-of-truth, kept in lockstep
     // with the ?debug=1 overlay).
     //
-    // Each entry maps a /build root pathway toggle to one /demo skeleton
-    // box id. When the /build value is truthy (state !== STATE_OFF), the
-    // mapped /demo box animates in; when it goes back to STATE_OFF, the
-    // box animates out and the remaining boxes reflow over ~200ms.
+    // The base /demo pathway is ALWAYS the full skeleton — every box
+    // in DEMO_BOXES renders by default (filtered only by view mode).
+    // /build toggles AUGMENT the default with a one-line context blurb
+    // on the corresponding box so the audience sees what that workflow
+    // choice means at this step. Toggling /build off removes the
+    // context but never removes the box.
     //
-    // The three clickable highlights (initial / results / care-plan) are
-    // FIXED — they always render in /demo regardless of /build state.
-    // Any /build option not listed here is ignored silently; /demo never
-    // grows beyond DEMO_BOXES.
+    // Context strings are concrete to the chosen option but high level
+    // — they answer "what is this step?" and "what does this user
+    // see here?" in plain English, no codes, no jargon dumps.
+    //
+    // Build options not in this table are ignored silently.
     // ─────────────────────────────────────────────────────────────────
     const BUILD_TO_DEMO_MAPPING = {
-      mild:     'intake',     // mild pathway → Patient Intake box
-      moderate: 'caregiver',  // moderate pathway → Caregiver Assessment box
-      severe:   'follow-up',  // severe pathway → Follow-up box
-      guide:    'reminder',   // CMS GUIDE overlay → Reminder if needed box
+      mild: {
+        boxId:   'intake',
+        context: 'Single new-patient evaluation. Patient is here once for a baseline check; no ongoing program enrollment.',
+      },
+      moderate: {
+        boxId:   'caregiver',
+        context: 'Caregiver completes a brief well-being check-in. Surfaces strain early so the team can plan support.',
+      },
+      severe: {
+        boxId:   'follow-up',
+        context: 'Ongoing follow-ups every three months. Care nav books the next visit and watches for triggers between.',
+      },
+      guide: {
+        boxId:   'reminder',
+        context: 'Patient gets a friendly nudge two weeks, one week, and two days before each visit. Mindspan handles the cadence.',
+      },
     };
 
     const VIEW_OPTIONS = [
@@ -2823,26 +2838,21 @@
     // Pure presentational component. boxes = pathway data, viewMode filters
     // which boxes show, clickableBoxIds lights up the clickable affordance,
     // selectedBoxId persists an accent ring on the active selection,
-    // hiddenBoxIds (a Set) lets the parent force-hide non-clickable boxes
-    // based on /build state (with 200ms fade+collapse animations).
+    // boxContext (object: boxId → string) renders a one-line context
+    // blurb inside the matching box (populated by /build state).
     const PathwayDiagram = ({
       boxes,
       viewMode,
       clickableBoxIds = [],
       selectedBoxId = null,
       onBoxClick = () => {},
-      hiddenBoxIds = null,
+      boxContext = null,
     }) => {
       const accent = '#fb4d17';
       const accentText = '#c93a0e';
 
-      const isBoxVisible = (box) => {
-        if (!box.views.includes(viewMode)) return false;
-        // Clickable highlights are FIXED — never hidden by /build state.
-        if (clickableBoxIds.includes(box.id)) return true;
-        if (hiddenBoxIds && hiddenBoxIds.has(box.id)) return false;
-        return true;
-      };
+      const isBoxVisible = (box) => box.views.includes(viewMode);
+      const contextFor = (boxId) => boxContext && boxContext[boxId];
 
       return (
         <div className="w-full flex flex-col sm:flex-row items-stretch justify-center gap-2 sm:gap-0">
@@ -2854,6 +2864,7 @@
             const nextBox = boxes[i + 1];
             const connectorVisible = visible && !!nextBox && isBoxVisible(nextBox);
             const isLastBox = i === boxes.length - 1;
+            const ctx = contextFor(box.id);
 
             const baseStyle = isDecisionGate
               ? { backgroundColor: accent, color: '#FBF7F0', border: `2px dashed ${accentText}` }
@@ -2871,7 +2882,7 @@
                   aria-hidden={!visible}
                   tabIndex={visible ? 0 : -1}
                   data-visible={visible ? 'true' : 'false'}
-                  className={`demo-pathway-box relative flex-1 min-w-0 max-w-[180px] sm:max-w-none mx-auto sm:mx-0 w-full sm:w-auto px-3 py-3 rounded-[0.875rem] text-center ${
+                  className={`demo-pathway-box relative flex-1 min-w-0 max-w-[200px] sm:max-w-[180px] mx-auto sm:mx-0 w-full sm:w-auto px-3 py-3 rounded-[0.875rem] text-center ${
                     isClickable ? 'cursor-pointer hover:-translate-y-0.5' : 'cursor-default'
                   }`}
                   style={baseStyle}
@@ -2901,6 +2912,18 @@
                       style={{ color: accentText }}
                     >
                       {isSelected ? 'Showing' : 'View →'}
+                    </div>
+                  )}
+                  {ctx && (
+                    <div
+                      className="text-[10.5px] mt-2 pt-2 leading-snug text-left"
+                      style={
+                        isDecisionGate
+                          ? { color: 'rgba(251,247,240,0.92)', borderTop: '1px solid rgba(251,247,240,0.35)' }
+                          : { color: '#5F584A', borderTop: `1px solid ${accent}40` }
+                      }
+                    >
+                      {ctx}
                     </div>
                   )}
                 </button>
@@ -3251,14 +3274,21 @@
               </tr>
             </thead>
             <tbody>
-              {mappingRows.map(([key, tile]) => {
+              {mappingRows.map(([key, entry]) => {
                 const value = (buildState && buildState[key]) || STATE_OFF;
                 const truthy = value !== STATE_OFF;
                 return (
                   <tr key={key} style={{ borderBottom: '1px dotted rgba(255,255,255,0.08)' }}>
-                    <td style={{ padding: '4px 8px 4px 0', color: '#F4F4F0' }}>{key}</td>
-                    <td style={{ padding: '4px 8px 4px 0', color: '#a7e8d0' }}>{tile}</td>
-                    <td style={{ padding: '4px 0', color: truthy ? '#ffba70' : '#9aa3ab' }}>{value}</td>
+                    <td style={{ padding: '4px 8px 4px 0', color: '#F4F4F0', verticalAlign: 'top' }}>{key}</td>
+                    <td style={{ padding: '4px 8px 4px 0', color: '#a7e8d0', verticalAlign: 'top' }}>
+                      <div>{entry.boxId}</div>
+                      {truthy && (
+                        <div style={{ color: '#9aa3ab', fontSize: '10px', marginTop: '2px', maxWidth: '180px' }}>
+                          + {entry.context.slice(0, 60)}{entry.context.length > 60 ? '…' : ''}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ padding: '4px 0', color: truthy ? '#ffba70' : '#9aa3ab', verticalAlign: 'top' }}>{value}</td>
                   </tr>
                 );
               })}
@@ -3285,15 +3315,16 @@
       const onBoxClick = (id) =>
         setSelectedDemoBoxId((prev) => (prev === id ? null : id));
 
-      // Compute hidden skeleton boxes from /build state, using the
-      // BUILD_TO_DEMO_MAPPING source-of-truth declared near DEMO_BOXES.
-      const hiddenBoxIds = useMemo(() => {
-        const hidden = new Set();
-        Object.entries(BUILD_TO_DEMO_MAPPING).forEach(([buildKey, boxId]) => {
+      // Build per-box context lines from /build state. The base skeleton
+      // always renders; truthy /build toggles add a one-line blurb to the
+      // mapped box via BUILD_TO_DEMO_MAPPING.
+      const boxContext = useMemo(() => {
+        const ctx = {};
+        Object.entries(BUILD_TO_DEMO_MAPPING).forEach(([buildKey, entry]) => {
           const v = buildWorkflowStates[buildKey] || STATE_OFF;
-          if (v === STATE_OFF) hidden.add(boxId);
+          if (v !== STATE_OFF) ctx[entry.boxId] = entry.context;
         });
-        return hidden;
+        return ctx;
       }, [buildWorkflowStates]);
 
       return (
@@ -3307,7 +3338,7 @@
                 clickableBoxIds={CLICKABLE_DEMO_BOX_IDS}
                 selectedBoxId={selectedDemoBoxId}
                 onBoxClick={onBoxClick}
-                hiddenBoxIds={hiddenBoxIds}
+                boxContext={boxContext}
               />
             </div>
 
