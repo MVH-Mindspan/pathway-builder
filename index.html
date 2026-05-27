@@ -2858,8 +2858,6 @@
       const [mode, setMode] = useState('demo');
       // Per-pathway state: 'off' | 'approval' | 'on'. Default: moderate + GUIDE
       // are on; mild + severe are off.
-      // Per-pathway state: 'off' | 'approval' | 'on'. Default: moderate + GUIDE
-      // are on; mild + severe are off.
       const [workflowStates, setWorkflowStates] = useState({
         mild: STATE_OFF,
         moderate: STATE_ON,
@@ -2870,6 +2868,9 @@
       // starts with everything Off so the user composes from a blank slate;
       // missing keys fall through `state || STATE_OFF` in RootReferralCard.
       const [buildWorkflowStates, setBuildWorkflowStates] = useState({});
+      // Build-mode artifact drawer. Demo has its own equivalent inside
+      // DemoCanvas — keeping these separate avoids state bleeding across modes.
+      const [buildSelectedArtifact, setBuildSelectedArtifact] = useState(null);
       const [demoOverrides, setDemoOverrides] = useState({});
       // User-inserted nodes between phases inside a visit. Keyed by
       // `${pathwayId}__${visitId}__${slotIndex}` where slotIndex 0 is before
@@ -2997,7 +2998,17 @@
       // permitted in the referral root (state !== 'off') contributes its phase
       // nodes, expanded through each visit in the pathway.
       const activePathway = useMemo(() => {
-        if (mode === 'build') return pathway;
+        if (mode === 'build') {
+          const guideOn = (buildWorkflowStates.guide || STATE_OFF) !== STATE_OFF;
+          if (!guideOn) return pathway;
+          // GUIDE overlay: fold the GUIDE pathway's phase templates in so the
+          // VisitBlock below the user's manual pathway can resolve each phase
+          // node id to its prebuilt label / workflows / nested tasks.
+          return [
+            ...pathway,
+            ...ALL_PHASE_TEMPLATES.filter(n => n.pathwayId === 'guide'),
+          ];
+        }
         return ALL_PHASE_TEMPLATES
           .filter(n => (workflowStates[n.pathwayId] || STATE_OFF) !== STATE_OFF)
           .map(n => {
@@ -3010,7 +3021,7 @@
               },
             };
           });
-      }, [mode, pathway, workflowStates, demoOverrides]);
+      }, [mode, pathway, workflowStates, demoOverrides, buildWorkflowStates]);
 
       return (
         <div className="flex h-full w-full bg-cream text-ink overflow-hidden">
@@ -3064,47 +3075,102 @@
             </div>
 
             {mode === 'build' ? (
-              <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 relative flex flex-col items-center scroll-smooth paper-grain">
-                <div className="w-full max-w-md z-10">
-                  <RootReferralCard
-                    workflowStates={buildWorkflowStates}
-                    onSetWorkflowState={setBuildWorkflowState}
-                    hideTitle
-                  />
-                </div>
-                {pathway.length === 0 ? (
-                  <div className="mt-8 flex flex-col items-center text-center max-w-sm">
-                    <div className="p-4 rounded-pill bg-sand mb-5 text-inkSoft">
-                      <IconGitBranch />
+              (() => {
+                const buildGuideState = buildWorkflowStates.guide || STATE_OFF;
+                const showGuideOverlay = buildGuideState !== STATE_OFF;
+                const guidePathway = DEMO_PATHWAYS.guide;
+                const hasManualNodes = pathway.length > 0;
+                const showEmptyState = !hasManualNodes && !showGuideOverlay;
+                return (
+                  <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 relative flex flex-col items-center scroll-smooth paper-grain">
+                    <div className="w-full max-w-md z-10">
+                      <RootReferralCard
+                        workflowStates={buildWorkflowStates}
+                        onSetWorkflowState={setBuildWorkflowState}
+                        hideTitle
+                      />
                     </div>
-                    <div className="eyebrow mb-2">Compose downstream</div>
-                    <h3 className="font-display text-[1.5rem] text-ink leading-tight mb-2">Append phase nodes below</h3>
-                    <p className="text-[14px] text-inkSoft leading-relaxed">
-                      Click any node in the left palette to append it under the referral root. Each node carries its own workflows and nested steps.
-                    </p>
+                    {hasManualNodes && (
+                      <>
+                        <div className="flex flex-col items-center pointer-events-none mt-1">
+                          <div
+                            className="w-px h-8"
+                            style={{ backgroundImage: 'linear-gradient(to bottom, rgba(32,30,23,0.32), rgba(32,30,23,0.14))' }}
+                          ></div>
+                        </div>
+                        <div className="flex flex-col items-center relative w-full max-w-lg">
+                          {pathway.map((node, index) => (
+                            <NodeCard
+                              key={node.id}
+                              node={node}
+                              onRemove={removeNode}
+                              onSetState={setPrescribableState}
+                              showConnector={index < pathway.length - 1 || showGuideOverlay}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    )}
+                    {showGuideOverlay && (
+                      <>
+                        <div className="flex flex-col items-center pointer-events-none mt-2 mb-4">
+                          <div
+                            className="w-px h-10"
+                            style={{ backgroundImage: 'linear-gradient(to bottom, rgba(32,30,23,0.32), rgba(32,30,23,0.14))' }}
+                          ></div>
+                        </div>
+                        <div className="w-full max-w-md flex flex-col items-center">
+                          <div className="mb-4 flex flex-col items-center gap-1.5 text-center max-w-full px-2">
+                            <div
+                              className="inline-flex items-center px-2.5 py-1 rounded-pill max-w-full"
+                              style={{ color: guidePathway.hex, backgroundColor: `${guidePathway.hex}14`, border: `1px solid ${guidePathway.hex}55` }}
+                            >
+                              <span className="eyebrow truncate" style={{ color: guidePathway.hex }}>{guidePathway.label}</span>
+                            </div>
+                            <div className="text-[11px] text-inkMuted leading-snug break-words max-w-full">{guidePathway.description}</div>
+                            {buildGuideState === STATE_APPROVAL && (
+                              <div
+                                className="mt-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-pill"
+                                style={{ backgroundColor: 'rgba(251,77,23,0.10)', border: '1px solid rgba(251,77,23,0.30)' }}
+                              >
+                                <IconLock />
+                                <span className="eyebrow text-accent-text">Needs approval to fire</span>
+                              </div>
+                            )}
+                          </div>
+                          <VisitBlock
+                            visitId="guide"
+                            pathwayId="guide"
+                            activePathway={activePathway}
+                            onSetState={setPrescribableState}
+                            customNodes={customNodes}
+                            onAddCustomNode={addCustomNode}
+                            onRemoveCustomNode={removeCustomNode}
+                            onOpenArtifact={(id) => setBuildSelectedArtifact(id)}
+                          />
+                        </div>
+                      </>
+                    )}
+                    {showEmptyState && (
+                      <div className="mt-8 flex flex-col items-center text-center max-w-sm">
+                        <div className="p-4 rounded-pill bg-sand mb-5 text-inkSoft">
+                          <IconGitBranch />
+                        </div>
+                        <div className="eyebrow mb-2">Compose downstream</div>
+                        <h3 className="font-display text-[1.5rem] text-ink leading-tight mb-2">Append phase nodes below</h3>
+                        <p className="text-[14px] text-inkSoft leading-relaxed">
+                          Click any node in the left palette to append it under the referral root. Each node carries its own workflows and nested steps.
+                        </p>
+                      </div>
+                    )}
+                    <div className="pb-32"></div>
+                    <ArtifactDrawer
+                      artifactId={buildSelectedArtifact}
+                      onClose={() => setBuildSelectedArtifact(null)}
+                    />
                   </div>
-                ) : (
-                  <>
-                    <div className="flex flex-col items-center pointer-events-none mt-1">
-                      <div
-                        className="w-px h-8"
-                        style={{ backgroundImage: 'linear-gradient(to bottom, rgba(32,30,23,0.32), rgba(32,30,23,0.14))' }}
-                      ></div>
-                    </div>
-                    <div className="flex flex-col items-center relative w-full max-w-lg pb-32">
-                      {pathway.map((node, index) => (
-                        <NodeCard
-                          key={node.id}
-                          node={node}
-                          onRemove={removeNode}
-                          onSetState={setPrescribableState}
-                          showConnector={index < pathway.length - 1}
-                        />
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
+                );
+              })()
             ) : (
               <DemoCanvas
                 activePathway={activePathway}
