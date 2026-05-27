@@ -1090,12 +1090,10 @@
     const DemoLegend = () => (
       <aside className="w-64 bg-sandSoft border-r border-soft flex flex-col py-6 px-5 shrink-0 z-20 relative">
         <div className="eyebrow mb-2">Demo</div>
-        <h2 className="font-display text-[1.5rem] text-ink mb-3 leading-tight">Agilon referral pathway</h2>
+        <h2 className="font-display text-[1.5rem] text-ink mb-3 leading-tight">Care navigation story</h2>
         <p className="text-[13px] text-inkSoft mb-6 leading-relaxed">
-          The referral node sets which pathways Agilon referrals are permitted to follow. The toolbar above the canvas picks a preview scenario; pathways the patient's data triggers fire only if permitted.
+          A built care pathway, told from three perspectives. Toggle below the diagram to see what each audience sees. Click <span className="font-semibold text-ink">Initial Assessment</span>, <span className="font-semibold text-ink">Results</span>, or <span className="font-semibold text-ink">Care Plan</span> to see the live artifact each step produces.
         </p>
-        <div className="eyebrow mb-2">Node types</div>
-        <NodeLegendList />
         <div className="mt-auto text-[12px] text-inkMuted pt-6 leading-relaxed">
           Switch to <span className="text-teal font-semibold">Build</span> to compose a pathway from scratch.
         </div>
@@ -2730,125 +2728,419 @@
       );
     };
 
-    const DemoCanvas = ({ activePathway, workflowStates, onSetWorkflowState, onSetPrescribableState, customNodes, onAddCustomNode, onRemoveCustomNode }) => {
-      const visiblePathwayIds = PATHWAY_IDS.filter(id => (workflowStates[id] || STATE_OFF) !== STATE_OFF);
-      const count = visiblePathwayIds.length;
-      const hasAny = count > 0;
-      const [selectedArtifact, setSelectedArtifact] = useState(null);
-      const openArtifact = (id) => setSelectedArtifact(id);
-      const closeArtifact = () => setSelectedArtifact(null);
+    // ============================================================
+    // Demo story view — story-first pathway viewer
+    // ============================================================
+    // The demo route is a single horizontal pathway diagram + three
+    // audience-targeted view toggles + three inline-expansion panels.
+    // PathwayDiagram and ViewToggle are pure prop-driven so a future
+    // task can mount them inside /build as a preview mode.
 
-      // Grid columns scale with how many pathways are permitted.
-      const gridClass =
-        count <= 1 ? 'grid-cols-1 max-w-md' :
-        count === 2 ? 'grid-cols-1 md:grid-cols-2 max-w-5xl' :
-        count === 3 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 max-w-6xl' :
-                       'grid-cols-1 md:grid-cols-2 xl:grid-cols-4 max-w-[80rem]';
+    const DEMO_BOXES = [
+      { id: 'intake',    label: 'Patient Intake',                                                                              views: ['care-nav', 'patient'] },
+      { id: 'initial',   label: 'Initial Assessment', sublabel: 'Mindy AI',          clickable: true,                          views: ['care-nav', 'patient', 'provider'] },
+      { id: 'reminder',  label: 'Reminder if needed', sublabel: 'Care-nav outreach',                                            views: ['care-nav'] },
+      { id: 'caregiver', label: 'Caregiver Assessment',                                                                         views: ['care-nav', 'patient', 'provider'] },
+      { id: 'results',   label: 'Results',            sublabel: 'Provider review',   clickable: true,  decisionGate: true,     views: ['care-nav', 'patient', 'provider'] },
+      { id: 'care-plan', label: 'Care Plan',          sublabel: 'Provider approves', clickable: true,  decisionGate: true,     views: ['care-nav', 'patient', 'provider'] },
+      { id: 'follow-up', label: 'Follow-up',                                                                                   views: ['care-nav', 'patient', 'provider'] },
+    ];
+
+    const CLICKABLE_DEMO_BOX_IDS = ['initial', 'results', 'care-plan'];
+
+    const VIEW_OPTIONS = [
+      { id: 'care-nav', label: 'Care Navigator' },
+      { id: 'patient',  label: 'Patient / Caregiver' },
+      { id: 'provider', label: 'Provider / Partner' },
+    ];
+
+    // Pure presentational component. boxes = pathway data, viewMode filters
+    // which boxes show, clickableBoxIds lights up the clickable affordance,
+    // selectedBoxId persists an accent ring on the active selection.
+    const PathwayDiagram = ({
+      boxes,
+      viewMode,
+      clickableBoxIds = [],
+      selectedBoxId = null,
+      onBoxClick = () => {},
+    }) => {
+      const visibleBoxes = boxes.filter((b) => b.views.includes(viewMode));
+      const accent = '#fb4d17';
+      const accentText = '#c93a0e';
 
       return (
-        <div className="flex-1 overflow-auto p-8 flex flex-col items-center scroll-smooth paper-grain">
-          <div className="w-full max-w-md z-10">
-            <RootReferralCard
-              workflowStates={workflowStates}
-              onSetWorkflowState={onSetWorkflowState}
-            />
+        <div className="w-full flex flex-col sm:flex-row items-stretch justify-center gap-2 sm:gap-0">
+          {visibleBoxes.map((box, i) => {
+            const isLast = i === visibleBoxes.length - 1;
+            const isClickable = clickableBoxIds.includes(box.id);
+            const isSelected = selectedBoxId === box.id;
+            const isDecisionGate = box.decisionGate && viewMode === 'provider';
+
+            const baseStyle = isDecisionGate
+              ? { backgroundColor: accent, color: '#FBF7F0', border: `2px dashed ${accentText}` }
+              : isSelected
+                ? { backgroundColor: '#FBF7F0', color: '#201E17', border: `2px solid ${accent}`, boxShadow: `0 0 0 3px rgba(251,77,23,0.15)` }
+                : { backgroundColor: '#FBF7F0', color: '#201E17', border: '1px solid rgba(32,30,23,0.18)' };
+
+            return (
+              <React.Fragment key={box.id}>
+                <button
+                  type="button"
+                  onClick={() => isClickable && onBoxClick(box.id)}
+                  disabled={!isClickable}
+                  aria-pressed={isClickable ? isSelected : undefined}
+                  className={`relative flex-1 min-w-0 max-w-[180px] sm:max-w-none mx-auto sm:mx-0 w-full sm:w-auto px-3 py-3 rounded-[0.875rem] text-center transition-all ${
+                    isClickable ? 'cursor-pointer hover:-translate-y-0.5' : 'cursor-default'
+                  }`}
+                  style={baseStyle}
+                >
+                  <div className="text-[12.5px] font-semibold leading-tight">
+                    {box.label}
+                  </div>
+                  {box.sublabel && (
+                    <div
+                      className="text-[10.5px] mt-0.5 leading-snug"
+                      style={isDecisionGate ? { color: 'rgba(251,247,240,0.85)' } : { color: '#5F584A' }}
+                    >
+                      {box.sublabel}
+                    </div>
+                  )}
+                  {isDecisionGate && (
+                    <div
+                      className="text-[9.5px] mt-1 uppercase tracking-[0.10em] font-semibold"
+                      style={{ color: '#FBF7F0' }}
+                    >
+                      Decision required
+                    </div>
+                  )}
+                  {isClickable && !isDecisionGate && (
+                    <div
+                      className="text-[9.5px] mt-1 uppercase tracking-[0.10em] font-semibold"
+                      style={{ color: accentText }}
+                    >
+                      {isSelected ? 'Showing' : 'View →'}
+                    </div>
+                  )}
+                </button>
+                {!isLast && (
+                  <div className="flex items-center justify-center self-center sm:self-stretch sm:px-1.5">
+                    <div
+                      className="hidden sm:block w-6"
+                      style={{ borderTop: '2px dashed rgba(32,30,23,0.32)' }}
+                    ></div>
+                    <div
+                      className="sm:hidden h-4"
+                      style={{ borderLeft: '2px dashed rgba(32,30,23,0.32)' }}
+                    ></div>
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      );
+    };
+
+    const ViewToggle = ({ value, onChange, options = VIEW_OPTIONS }) => (
+      <div className="inline-flex items-center bg-sand border border-soft rounded-pill p-1 flex-wrap">
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => onChange(opt.id)}
+            className={`px-4 py-1.5 rounded-pill text-sm font-semibold transition-all whitespace-nowrap ${
+              value === opt.id ? 'bg-teal text-cream shadow-sm' : 'text-inkSoft hover:text-ink'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    );
+
+    // The Sample Care Plan panel — references the visual style of
+    // https://mindspan-member-portal.vercel.app/care-plan and the content
+    // scaffold of generic CMS Guide care plan conventions. Plain English
+    // throughout. No CPT / ICD / NDC / billing codes anywhere.
+    const CARE_PLAN_TABS = [
+      { id: 'past',   label: 'Past' },
+      { id: 'now',    label: 'Now' },
+      { id: 'future', label: 'Future' },
+    ];
+
+    const SampleCarePlanArtifact = () => {
+      const [activeTab, setActiveTab] = useState('now');
+
+      return (
+        <div className="flex flex-col gap-5 px-5 py-5">
+          {/* Hero block — accent teal panel matching member portal feel */}
+          <section
+            className="rounded-[1.125rem] p-5"
+            style={{
+              backgroundColor: 'rgba(8, 54, 48, 0.06)',
+              border: '1px solid rgba(8, 54, 48, 0.22)',
+            }}
+          >
+            <div className="eyebrow mb-2" style={{ color: '#083630' }}>Care plan</div>
+            <h2 className="font-display text-[1.625rem] text-ink leading-tight mb-1">
+              {DEMO_PATIENT.name}'s Care Plan
+            </h2>
+            <div className="text-[13px] text-inkSoft">
+              Caregiver: <span className="font-semibold text-ink">Sarah Sample</span> · daughter
+            </div>
+            <p className="text-[12.5px] text-inkSoft mt-2 leading-relaxed">
+              A living plan built around what matters to {DEMO_PATIENT.name.split(' ')[0]} and what helps Sarah support her — updated after every assessment and shared with the Mindspan care team.
+            </p>
+          </section>
+
+          {/* Past / Now / Future tabs — match member-portal timeline tabs */}
+          <div className="inline-flex items-center bg-sand border border-soft rounded-pill p-1 self-start">
+            {CARE_PLAN_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-1.5 rounded-pill text-sm font-semibold transition-all ${
+                  activeTab === tab.id ? 'bg-teal text-cream shadow-sm' : 'text-inkSoft hover:text-ink'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
 
-          {/* Cognitive testing gate — sits between the referral and the pathways */}
-          {hasAny && (
+          {activeTab === 'past' && (
+            <section
+              className="rounded-[1.125rem] bg-cream p-4"
+              style={{ border: '1px solid rgba(32,30,23,0.10)' }}
+            >
+              <div className="eyebrow mb-3">Recent milestones</div>
+              <ul className="text-[13px] text-ink leading-relaxed flex flex-col gap-2">
+                <li>· Initial cognitive screen completed via Mindy AI at home, with Sarah present for setup.</li>
+                <li>· In-clinic confirmatory assessment with Dr. Chen — results discussed openly with {DEMO_PATIENT.name.split(' ')[0]} and Sarah.</li>
+                <li>· First care plan reviewed together and finalized, with Sarah named as primary caregiver.</li>
+                <li>· Annual flu and pneumococcal vaccines up to date.</li>
+              </ul>
+            </section>
+          )}
+
+          {activeTab === 'now' && (
             <>
-              <div className="flex flex-col items-center pointer-events-none mt-1">
-                <div
-                  className="w-px h-8"
-                  style={{ backgroundImage: 'linear-gradient(to bottom, rgba(32,30,23,0.32), rgba(32,30,23,0.14))' }}
-                ></div>
-              </div>
-              <div className="w-full max-w-md z-10">
-                <CognitiveGateCard visiblePathwayIds={visiblePathwayIds} onOpenArtifact={openArtifact} />
-              </div>
-              <div className="flex flex-col items-center pointer-events-none mb-4 mt-1">
-                <div
-                  className="w-px h-10"
-                  style={{ backgroundImage: 'linear-gradient(to bottom, rgba(32,30,23,0.32), rgba(32,30,23,0.14))' }}
-                ></div>
-              </div>
+              <section
+                className="rounded-[1.125rem] bg-cream p-4"
+                style={{ border: '1px solid rgba(32,30,23,0.10)' }}
+              >
+                <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+                  <div className="eyebrow">Today & this week</div>
+                  <span
+                    className="px-2 py-0.5 rounded-pill text-[10px] font-semibold uppercase tracking-[0.12em]"
+                    style={{ backgroundColor: '#F4ECD9', color: '#083630', border: '1px solid rgba(8,54,48,0.22)' }}
+                  >
+                    Stage 2 · Subtle changes
+                  </span>
+                </div>
+                <p className="text-[12.5px] text-ink leading-snug mb-3">
+                  Two weeks focused on a steady morning routine, light cognitive engagement, and keeping blood pressure on track.
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {[
+                    'Take medications at the same time each morning',
+                    'Walk 20 minutes after breakfast (Sarah can join)',
+                    'One memory exercise after lunch — crosswords, reading, or a phone call with a friend',
+                    'Drink water with each meal and one glass between meals',
+                    'Sleep window 10pm–6am; bedroom dark and quiet',
+                  ].map((item, i) => (
+                    <label key={i} className="flex items-start gap-2 text-[12.5px] text-ink cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-1 shrink-0"
+                        style={{ accentColor: '#083630' }}
+                        defaultChecked={i < 2}
+                      />
+                      <span>{item}</span>
+                    </label>
+                  ))}
+                </div>
+              </section>
+
+              <section
+                className="rounded-[1.125rem] bg-cream p-4"
+                style={{ border: '1px solid rgba(32,30,23,0.10)' }}
+              >
+                <div className="eyebrow mb-3">Medications</div>
+                <div className="flex flex-col gap-2.5">
+                  {[
+                    { name: 'Donepezil 5 mg', when: 'Once daily, at bedtime', note: 'Supports memory and attention. Take with a small snack to settle the stomach.' },
+                    { name: 'Metformin 500 mg', when: 'Twice daily with food', note: 'Helps keep blood sugar steady. If a dose is missed, take it when remembered unless the next dose is close.' },
+                    { name: 'Losartan 50 mg', when: 'Once daily, morning', note: 'Manages blood pressure. Log a home reading once a week and share with the care team.' },
+                  ].map((med) => (
+                    <div
+                      key={med.name}
+                      className="rounded-lg px-3 py-2.5"
+                      style={{ backgroundColor: 'rgba(232,222,203,0.30)', border: '1px solid rgba(32,30,23,0.10)' }}
+                    >
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="font-semibold text-[13px] text-ink">{med.name}</div>
+                        <div className="text-[11px] text-inkMuted">{med.when}</div>
+                      </div>
+                      <div className="text-[12px] text-inkSoft mt-1 leading-snug">{med.note}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section
+                className="rounded-[1.125rem] bg-cream p-4"
+                style={{ border: '1px solid rgba(32,30,23,0.10)' }}
+              >
+                <div className="eyebrow mb-2">Follow-up schedule</div>
+                <ul className="text-[12.5px] text-ink leading-relaxed flex flex-col gap-1.5">
+                  <li>· <span className="font-semibold">Next month:</span> Brief check-in with Dr. Chen to review medications. Quick visit, no procedures planned.</li>
+                  <li>· <span className="font-semibold">Three months out:</span> Repeat cognitive screen with Mindy at home; Sarah can sit beside {DEMO_PATIENT.name.split(' ')[0]} and help with setup.</li>
+                  <li>· <span className="font-semibold">Six months out:</span> Comprehensive in-clinic visit + a caregiver-support check-in for Sarah.</li>
+                  <li>· <span className="font-semibold">Twelve months out:</span> Full annual reassessment and updated care plan.</li>
+                </ul>
+              </section>
             </>
           )}
 
-          {/* Parallel pathway columns — one per permitted protocol */}
-          {hasAny && (
-            <div className={`w-full grid gap-6 ${gridClass}`}>
-              {visiblePathwayIds.map(pid => {
-                const pathway = DEMO_PATHWAYS[pid];
-                const pathwayState = workflowStates[pid] || STATE_OFF;
-                const isApprovalPathway = pathwayState === STATE_APPROVAL;
-                return (
-                  <div key={pid} className="flex flex-col items-center min-w-0 w-full">
-                    <div className="mb-4 flex flex-col items-center gap-1.5 text-center max-w-full px-2">
-                      <div
-                        className="inline-flex items-center px-2.5 py-1 rounded-pill max-w-full"
-                        style={{ color: pathway.hex, backgroundColor: `${pathway.hex}14`, border: `1px solid ${pathway.hex}55` }}
-                      >
-                        <span className="eyebrow truncate" style={{ color: pathway.hex }}>{pathway.label}</span>
-                      </div>
-                      <div className="text-[11px] text-inkMuted leading-snug break-words max-w-full">{pathway.description}</div>
-                      {isApprovalPathway && (
-                        <div
-                          className="mt-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-pill"
-                          style={{ backgroundColor: 'rgba(251,77,23,0.10)', border: '1px solid rgba(251,77,23,0.30)' }}
-                        >
-                          <IconLock />
-                          <span className="eyebrow text-accent-text">Needs approval to fire</span>
-                        </div>
-                      )}
-                    </div>
-                    {pathway.visits.map((visitId, i) => {
-                      const isLast = i === pathway.visits.length - 1;
-                      return (
-                        <React.Fragment key={visitId}>
-                          <VisitBlock
-                            visitId={visitId}
-                            pathwayId={pid}
-                            activePathway={activePathway}
-                            onSetState={onSetPrescribableState}
-                            customNodes={customNodes}
-                            onAddCustomNode={onAddCustomNode}
-                            onRemoveCustomNode={onRemoveCustomNode}
-                            onOpenArtifact={openArtifact}
-                          />
-                          {!isLast && <VisitLink nextVisit={VISIT_DEFS[pathway.visits[i + 1]]} />}
-                        </React.Fragment>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Merge marker — closes the configured-protocols block */}
-          {hasAny && (
-            <div className="flex flex-col items-center pointer-events-none mt-6">
-              <div
-                className="w-px h-10"
-                style={{ backgroundImage: 'linear-gradient(to bottom, rgba(32,30,23,0.14), rgba(32,30,23,0.32))' }}
-              ></div>
-              <div
-                className="flex items-center gap-2 px-3 py-1.5 rounded-pill bg-cream"
-                style={{ border: `1.5px solid rgba(32,30,23,0.22)` }}
+          {activeTab === 'future' && (
+            <>
+              <section
+                className="rounded-[1.125rem] bg-cream p-4"
+                style={{ border: '1px solid rgba(32,30,23,0.10)' }}
               >
-                <span className="w-2 h-2 rounded-full bg-ink"></span>
-                <span className="eyebrow normal-case tracking-[0.12em]">Merge</span>
-              </div>
-            </div>
-          )}
+                <div className="eyebrow mb-2">Caregiver support for Sarah</div>
+                <ul className="text-[12.5px] text-ink leading-relaxed flex flex-col gap-2">
+                  <li>· <span className="font-semibold">Respite care:</span> Up to eight hours a week of trained in-home companionship, available within a week's notice through Mindspan partners.</li>
+                  <li>· <span className="font-semibold">Local support groups:</span> Two in-person groups meet in the area on Tuesday evenings and Saturday mornings; a virtual evening group is open across the region.</li>
+                  <li>· <span className="font-semibold">24/7 helpline:</span> Call (855) 555-MIND any hour for advice — clinically staffed, never a recording.</li>
+                  <li>· <span className="font-semibold">Monthly caregiver check-ins:</span> A 30-minute call with a Mindspan navigator to talk through how Sarah is doing.</li>
+                </ul>
+              </section>
 
-          {!hasAny && (
-            <div className="mt-10 text-[13px] text-inkMuted italic max-w-md text-center">
-              No pathways permitted. Enable one or more workflows in the referral node above to render their protocols here.
-            </div>
+              <section
+                className="rounded-[1.125rem] bg-cream p-4"
+                style={{ border: '1px solid rgba(32,30,23,0.10)' }}
+              >
+                <div className="eyebrow mb-2">Advance care planning</div>
+                <ul className="text-[12.5px] text-ink leading-relaxed flex flex-col gap-2">
+                  <li>· <span className="font-semibold">Healthcare proxy:</span> Sarah Sample, daughter — on file.</li>
+                  <li>· <span className="font-semibold">Power of attorney (financial):</span> Documents started, signing visit scheduled.</li>
+                  <li>· <span className="font-semibold">Living will / advance directive:</span> Draft reviewed this month; finalizing at the next visit.</li>
+                  <li>· <span className="font-semibold">Wishes and values:</span> {DEMO_PATIENT.name.split(' ')[0]} has shared what matters most with the care team; the plan reflects those choices.</li>
+                </ul>
+              </section>
+
+              <section
+                className="rounded-[1.125rem] bg-cream p-4"
+                style={{ border: '1px solid rgba(32,30,23,0.10)' }}
+              >
+                <div className="eyebrow mb-2">In an emergency</div>
+                <ul className="text-[12.5px] text-ink leading-relaxed flex flex-col gap-1.5">
+                  <li>· Primary caregiver: <span className="font-semibold">Sarah Sample</span> · (555) 010-2026</li>
+                  <li>· Mindspan 24/7 helpline: <span className="font-semibold">(855) 555-MIND</span></li>
+                  <li>· If {DEMO_PATIENT.name.split(' ')[0]} is in immediate danger: call <span className="font-semibold">911</span>.</li>
+                  <li>· Mental-health crisis (you or Sarah): dial <span className="font-semibold">988</span>.</li>
+                </ul>
+              </section>
+            </>
           )}
-          <ArtifactDrawer artifactId={selectedArtifact} onClose={closeArtifact} />
+        </div>
+      );
+    };
+
+    // Inline expansion panel — opens directly under the diagram & toggles
+    // when a clickable box is selected. Not a modal, not a side drawer.
+    const DEMO_PANEL_TITLES = {
+      'initial':   'Initial Assessment · Mindy AI',
+      'results':   'Results · Provider Summary',
+      'care-plan': 'Sample Care Plan',
+    };
+
+    const DemoInlinePanel = ({ boxId, onClose }) => {
+      if (!boxId) return null;
+      return (
+        <section
+          className="rounded-[1.25rem] bg-cream overflow-hidden animate-fade-in-up w-full"
+          style={{
+            border: '1px solid rgba(32,30,23,0.14)',
+            boxShadow: '0 4px 16px -4px rgba(32,30,23,0.10)',
+          }}
+        >
+          <div
+            className="flex items-center justify-between gap-3 px-5 py-3"
+            style={{ borderBottom: '1px solid rgba(32,30,23,0.10)' }}
+          >
+            <div className="flex items-center gap-3 min-w-0 flex-wrap">
+              <DemoPatientBanner />
+              <span className="font-display text-[1.125rem] text-ink truncate">{DEMO_PANEL_TITLES[boxId]}</span>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-pill text-[12px] font-semibold transition-colors hover:bg-sand"
+              style={{ color: '#5F584A', backgroundColor: '#FBF7F0', border: '1px solid rgba(32,30,23,0.14)' }}
+              aria-label="Close panel"
+            >
+              Close
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+          <div>
+            {boxId === 'initial' && (
+              <div className="p-5 max-w-2xl mx-auto"><MindyCard /></div>
+            )}
+            {boxId === 'results'   && <PreVisitSummaryArtifact />}
+            {boxId === 'care-plan' && <SampleCarePlanArtifact />}
+          </div>
+        </section>
+      );
+    };
+
+    const DemoCanvas = () => {
+      const [demoView, setDemoView] = useState('care-nav');
+      const [selectedDemoBoxId, setSelectedDemoBoxId] = useState(null);
+
+      const onBoxClick = (id) =>
+        setSelectedDemoBoxId((prev) => (prev === id ? null : id));
+
+      return (
+        <div className="flex-1 overflow-y-auto p-6 sm:p-8 flex flex-col items-center scroll-smooth paper-grain">
+          <div className="w-full max-w-5xl flex flex-col items-center gap-6">
+            {/* Hero: pathway diagram */}
+            <div className="w-full">
+              <PathwayDiagram
+                boxes={DEMO_BOXES}
+                viewMode={demoView}
+                clickableBoxIds={CLICKABLE_DEMO_BOX_IDS}
+                selectedBoxId={selectedDemoBoxId}
+                onBoxClick={onBoxClick}
+              />
+            </div>
+
+            {/* View toggles directly below the diagram */}
+            <div className="flex items-center justify-center w-full">
+              <ViewToggle value={demoView} onChange={setDemoView} />
+            </div>
+
+            {/* Inline expansion area */}
+            {selectedDemoBoxId && (
+              <DemoInlinePanel
+                boxId={selectedDemoBoxId}
+                onClose={() => setSelectedDemoBoxId(null)}
+              />
+            )}
+
+            {!selectedDemoBoxId && (
+              <p className="text-[13px] text-inkMuted text-center max-w-md leading-relaxed">
+                Click <span className="font-semibold text-ink">Initial Assessment</span>, <span className="font-semibold text-ink">Results</span>, or <span className="font-semibold text-ink">Care Plan</span> to see what each step looks like in practice.
+              </p>
+            )}
+          </div>
         </div>
       );
     };
@@ -2999,14 +3291,14 @@
       // nodes, expanded through each visit in the pathway.
       const activePathway = useMemo(() => {
         if (mode === 'build') {
-          const guideOn = (buildWorkflowStates.guide || STATE_OFF) !== STATE_OFF;
-          if (!guideOn) return pathway;
-          // GUIDE overlay: fold the GUIDE pathway's phase templates in so the
-          // VisitBlock below the user's manual pathway can resolve each phase
-          // node id to its prebuilt label / workflows / nested tasks.
+          const enabledIds = PATHWAY_IDS.filter(id => (buildWorkflowStates[id] || STATE_OFF) !== STATE_OFF);
+          if (enabledIds.length === 0) return pathway;
+          // Pathway overlays: fold every enabled pathway's phase templates in
+          // so each VisitBlock below the user's manual pathway can resolve its
+          // phase-node ids to prebuilt labels / workflows / nested tasks.
           return [
             ...pathway,
-            ...ALL_PHASE_TEMPLATES.filter(n => n.pathwayId === 'guide'),
+            ...ALL_PHASE_TEMPLATES.filter(n => enabledIds.includes(n.pathwayId)),
           ];
         }
         return ALL_PHASE_TEMPLATES
@@ -3052,7 +3344,7 @@
                 ))}
               </div>
               <div className="mt-auto text-[12px] text-inkMuted pt-6 leading-relaxed">
-                Switch to <span className="text-teal font-semibold">Demo</span> to view the prebuilt Agilon referral pathway.
+                Switch to <span className="text-teal font-semibold">Demo</span> to see the care-navigation story view.
               </div>
             </aside>
           ) : (
@@ -3068,7 +3360,7 @@
                 <p className="text-inkSoft text-[14px] mt-1.5 leading-snug">
                   {mode === 'build'
                     ? 'Visual orchestration for clinical care pathways.'
-                    : 'Configure pathways permitted for Agilon in the referral node, then preview which one fires for a given patient.'}
+                    : 'A built care pathway, told from three perspectives. Three steps open inline panels with their live artifact.'}
                 </p>
               </div>
               <ModeToggle mode={mode} setMode={setMode} />
@@ -3076,11 +3368,10 @@
 
             {mode === 'build' ? (
               (() => {
-                const buildGuideState = buildWorkflowStates.guide || STATE_OFF;
-                const showGuideOverlay = buildGuideState !== STATE_OFF;
-                const guidePathway = DEMO_PATHWAYS.guide;
+                const enabledPathwayIds = PATHWAY_IDS.filter(id => (buildWorkflowStates[id] || STATE_OFF) !== STATE_OFF);
+                const showOverlays = enabledPathwayIds.length > 0;
                 const hasManualNodes = pathway.length > 0;
-                const showEmptyState = !hasManualNodes && !showGuideOverlay;
+                const showEmptyState = !hasManualNodes && !showOverlays;
                 return (
                   <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 relative flex flex-col items-center scroll-smooth paper-grain">
                     <div className="w-full max-w-md z-10">
@@ -3105,52 +3396,63 @@
                               node={node}
                               onRemove={removeNode}
                               onSetState={setPrescribableState}
-                              showConnector={index < pathway.length - 1 || showGuideOverlay}
+                              showConnector={index < pathway.length - 1 || showOverlays}
                             />
                           ))}
                         </div>
                       </>
                     )}
-                    {showGuideOverlay && (
-                      <>
-                        <div className="flex flex-col items-center pointer-events-none mt-2 mb-4">
-                          <div
-                            className="w-px h-10"
-                            style={{ backgroundImage: 'linear-gradient(to bottom, rgba(32,30,23,0.32), rgba(32,30,23,0.14))' }}
-                          ></div>
-                        </div>
-                        <div className="w-full max-w-md flex flex-col items-center">
-                          <div className="mb-4 flex flex-col items-center gap-1.5 text-center max-w-full px-2">
+                    {enabledPathwayIds.map((pid) => {
+                      const pathwayMeta = DEMO_PATHWAYS[pid];
+                      const pathwayState = buildWorkflowStates[pid] || STATE_OFF;
+                      return (
+                        <React.Fragment key={pid}>
+                          <div className="flex flex-col items-center pointer-events-none mt-2 mb-4">
                             <div
-                              className="inline-flex items-center px-2.5 py-1 rounded-pill max-w-full"
-                              style={{ color: guidePathway.hex, backgroundColor: `${guidePathway.hex}14`, border: `1px solid ${guidePathway.hex}55` }}
-                            >
-                              <span className="eyebrow truncate" style={{ color: guidePathway.hex }}>{guidePathway.label}</span>
-                            </div>
-                            <div className="text-[11px] text-inkMuted leading-snug break-words max-w-full">{guidePathway.description}</div>
-                            {buildGuideState === STATE_APPROVAL && (
-                              <div
-                                className="mt-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-pill"
-                                style={{ backgroundColor: 'rgba(251,77,23,0.10)', border: '1px solid rgba(251,77,23,0.30)' }}
-                              >
-                                <IconLock />
-                                <span className="eyebrow text-accent-text">Needs approval to fire</span>
-                              </div>
-                            )}
+                              className="w-px h-10"
+                              style={{ backgroundImage: 'linear-gradient(to bottom, rgba(32,30,23,0.32), rgba(32,30,23,0.14))' }}
+                            ></div>
                           </div>
-                          <VisitBlock
-                            visitId="guide"
-                            pathwayId="guide"
-                            activePathway={activePathway}
-                            onSetState={setPrescribableState}
-                            customNodes={customNodes}
-                            onAddCustomNode={addCustomNode}
-                            onRemoveCustomNode={removeCustomNode}
-                            onOpenArtifact={(id) => setBuildSelectedArtifact(id)}
-                          />
-                        </div>
-                      </>
-                    )}
+                          <div className="w-full max-w-md flex flex-col items-center">
+                            <div className="mb-4 flex flex-col items-center gap-1.5 text-center max-w-full px-2">
+                              <div
+                                className="inline-flex items-center px-2.5 py-1 rounded-pill max-w-full"
+                                style={{ color: pathwayMeta.hex, backgroundColor: `${pathwayMeta.hex}14`, border: `1px solid ${pathwayMeta.hex}55` }}
+                              >
+                                <span className="eyebrow truncate" style={{ color: pathwayMeta.hex }}>{pathwayMeta.label}</span>
+                              </div>
+                              <div className="text-[11px] text-inkMuted leading-snug break-words max-w-full">{pathwayMeta.description}</div>
+                              {pathwayState === STATE_APPROVAL && (
+                                <div
+                                  className="mt-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-pill"
+                                  style={{ backgroundColor: 'rgba(251,77,23,0.10)', border: '1px solid rgba(251,77,23,0.30)' }}
+                                >
+                                  <IconLock />
+                                  <span className="eyebrow text-accent-text">Needs approval to fire</span>
+                                </div>
+                              )}
+                            </div>
+                            {pathwayMeta.visits.map((visitId, vi) => (
+                              <React.Fragment key={visitId}>
+                                <VisitBlock
+                                  visitId={visitId}
+                                  pathwayId={pid}
+                                  activePathway={activePathway}
+                                  onSetState={setPrescribableState}
+                                  customNodes={customNodes}
+                                  onAddCustomNode={addCustomNode}
+                                  onRemoveCustomNode={removeCustomNode}
+                                  onOpenArtifact={(id) => setBuildSelectedArtifact(id)}
+                                />
+                                {vi < pathwayMeta.visits.length - 1 && (
+                                  <VisitLink nextVisit={VISIT_DEFS[pathwayMeta.visits[vi + 1]]} />
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </div>
+                        </React.Fragment>
+                      );
+                    })}
                     {showEmptyState && (
                       <div className="mt-8 flex flex-col items-center text-center max-w-sm">
                         <div className="p-4 rounded-pill bg-sand mb-5 text-inkSoft">
@@ -3172,15 +3474,7 @@
                 );
               })()
             ) : (
-              <DemoCanvas
-                activePathway={activePathway}
-                workflowStates={workflowStates}
-                onSetWorkflowState={setWorkflowState}
-                onSetPrescribableState={setPrescribableState}
-                customNodes={customNodes}
-                onAddCustomNode={addCustomNode}
-                onRemoveCustomNode={removeCustomNode}
-              />
+              <DemoCanvas />
             )}
           </div>
         </div>
