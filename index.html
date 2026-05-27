@@ -713,7 +713,7 @@
               <path d="M2.5 4.5l3.5 3 3.5-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-          {open && (
+          {open && ReactDOM.createPortal(
             <div
               ref={popoverRef}
               role="listbox"
@@ -751,7 +751,8 @@
                   </button>
                 );
               })}
-            </div>
+            </div>,
+            document.body
           )}
         </div>
       );
@@ -1564,7 +1565,7 @@
             <IconPlus />
             <span>Insert node</span>
           </button>
-          {open && (
+          {open && ReactDOM.createPortal(
             <div
               ref={popoverRef}
               role="listbox"
@@ -1597,7 +1598,8 @@
                   <span className="text-[12.5px] font-semibold" style={{ color: t.hex }}>{t.label}</span>
                 </button>
               ))}
-            </div>
+            </div>,
+            document.body
           )}
         </div>
       );
