@@ -1235,8 +1235,177 @@
     // A "visit" — itself a sub-pathway within a parent pathway. Renders as a soft
     // container with the visit code/label at the top and its phase NodeCards
     // stacked inside.
-    const VisitBlock = ({ visitId, pathwayId, activePathway, onSetState }) => {
+    // Contextual examples for an inserted Decide node. Keyed by visit and the
+    // slot index inside the visit. Each example carries a title, subtitle, and
+    // one pre-clipped workflow from PRESCRIBABLES.decide so the node lands with
+    // a meaningful default state. Slots without a specific example fall through
+    // to a generic decide template.
+    const DECIDE_EXAMPLES = {
+      '99205': {
+        0: { title: 'Intake eligibility decision',  subtitle: 'Confirm referral source + Medicare coverage before clinical screening.', clip: 'cms-elig' },
+        1: { title: 'Screening result triage',       subtitle: 'Score-based decision on dementia staging before the T-2 readiness gate.', clip: 'cdr-fast' },
+        2: { title: 'Day-of-visit go / no-go',       subtitle: 'Last readiness check immediately before the new-patient encounter.',     clip: 'readiness-sweep' },
+        3: { title: 'Post-encounter routing',        subtitle: 'Continue follow-up, escalate to 99483, or branch to acute care?',          clip: 'care-plan-review' },
+        4: { title: 'Adherence + escalation gate',   subtitle: 'Below-threshold adherence triggers escalation; on-track continues.',       clip: 'adherence' },
+        5: { title: 'Downstream pathway selection',  subtitle: 'Pick the next visit type based on dementia stage + adherence.',             clip: 'cdr-fast' },
+      },
+      '99483': {
+        0: { title: 'GUIDE re-eligibility check',    subtitle: 'Confirm CMS GUIDE enrollment is still active before the Care Plan visit.', clip: 'cms-elig' },
+        1: { title: 'Pre-readiness triage',          subtitle: 'Identify gaps that would push the visit past the T-2 lock.',                clip: 'readiness-sweep' },
+        2: { title: 'Day-of-visit go / no-go',       subtitle: 'Final go-ahead after the T-2 readiness call.',                              clip: 'readiness-sweep' },
+        3: { title: 'Care plan acceptance decision', subtitle: 'Patient + caregiver sign-off on the ten-element care plan.',                clip: 'care-plan-review' },
+        4: { title: 'Ten-element completion gate',   subtitle: 'Audit gate: do all ten care-plan elements meet the CMS bar?',               clip: 'care-plan-review' },
+        5: { title: 'Re-staging decision',           subtitle: 'Annual re-administration triggers tier re-assignment.',                     clip: 'cdr-fast' },
+      },
+      '99215': {
+        0: { title: 'Pre-visit eligibility',         subtitle: 'Confirm member is still active before the follow-up encounter.',           clip: 'cms-elig' },
+        1: { title: 'Cognitive change decision',     subtitle: 'Re-stage if reassessment shows change since the last visit.',              clip: 'cdr-fast' },
+        2: { title: 'Adherence pause / continue',    subtitle: 'Below-threshold adherence pauses the protocol pending intervention.',     clip: 'adherence' },
+        3: { title: 'Medication adjustment gate',    subtitle: 'Provider decides on med changes based on adherence + BPSD frequency.',     clip: 'adherence' },
+        4: { title: 'Re-staging required?',          subtitle: 'Decide whether to re-administer CDR / FAST this cycle.',                   clip: 'cdr-fast' },
+        5: { title: 'Caregiver burden re-tier',      subtitle: 'Re-administer ZBI-22 if the burden trend has shifted.',                    clip: 'zbi-22' },
+      },
+      'guide': {
+        0: { title: 'GUIDE program eligibility',     subtitle: 'Verify CMS GUIDE eligibility (A+B, not MA / PACE / hospice).',             clip: 'cms-elig' },
+        1: { title: 'Voluntary alignment',           subtitle: 'Confirm patient consent before the initial assessment.',                   clip: 'cms-elig' },
+        2: { title: 'Care plan acceptance',          subtitle: 'Patient + caregiver sign-off on the ongoing care plan.',                   clip: 'care-plan-review' },
+        3: { title: 'Adherence pause / continue',    subtitle: 'Below-threshold adherence triggers a check-in or pause.',                  clip: 'adherence' },
+        4: { title: 'Annual re-tier decision',       subtitle: 'Caregiver burden score change triggers a tier re-assignment.',             clip: 'cdr-fast' },
+        5: { title: 'GUIDE program exit',            subtitle: 'Continue GUIDE, transfer pathway, or graduate.',                            clip: 'care-plan-review' },
+      },
+    };
+    const DECIDE_FALLBACK = {
+      title: 'Decision step (custom)',
+      subtitle: 'Inserted between phases. Clip a decision from the basket below.',
+      clip: null,
+    };
+
+    // Contextual examples for an inserted Monitor node. Same shape as the Decide
+    // table — one pre-clipped workflow per (visit, slot) pair.
+    const MONITOR_EXAMPLES = {
+      '99205': {
+        0: { title: 'Referral intake tracker',         subtitle: 'Watch SLA on incoming referral packets + pre-screen completion.',         clip: 'cp-adherence' },
+        1: { title: 'Pre-visit task SLA monitor',      subtitle: 'Track readiness-task completion against T-7 / T-5 / T-2 deadlines.',     clip: 'cp-adherence' },
+        2: { title: 'T-2 lock status monitor',         subtitle: 'Watch Green / Yellow / Red lock holds firm through visit start.',         clip: 'cp-adherence' },
+        3: { title: 'Same-day note completion tracker', subtitle: 'Monitor note-signing SLA + outstanding orders.',                          clip: 'cp-adherence' },
+        4: { title: 'T+7 follow-up monitor',           subtitle: 'Watch downstream booking + safety-task completion through day 7.',         clip: 'cp-adherence' },
+        5: { title: 'Annual reassessment timer',       subtitle: 'Track time-to-next CDR re-administration after the new-patient visit.',    clip: 'cdr-stage' },
+      },
+      '99483': {
+        0: { title: 'Pre-enrollment baseline tracker',  subtitle: 'Watch baseline data freshness before the Care Plan Visit window opens.',   clip: 'cp-adherence' },
+        1: { title: 'Pre-visit gap monitor',            subtitle: 'Monitor remaining gaps against T-14 readiness sweep results.',             clip: 'cp-adherence' },
+        2: { title: 'Readiness lock monitor',           subtitle: 'Track that T-2 Green / Yellow / Red lock holds through day-of-visit.',     clip: 'cp-adherence' },
+        3: { title: 'Care-plan element compliance',     subtitle: 'Monitor each of the ten required elements as the visit closes out.',       clip: 'cp-adherence' },
+        4: { title: 'Annual reassessment tracker',      subtitle: 'Track time-to-next CDR / FAST + ZBI re-administration.',                  clip: 'cdr-stage' },
+        5: { title: 'Care-plan outcome trend',          subtitle: 'Watch ADL + cognitive trend across the post-visit cycle.',                  clip: 'cdr-stage' },
+      },
+      '99215': {
+        0: { title: 'Ongoing engagement monitor',       subtitle: 'Watch member contact cadence + caregiver touchpoints between visits.',     clip: 'cp-adherence' },
+        1: { title: 'Pre-visit data freshness check',   subtitle: 'Monitor lab + MRI + cognitive reassessment freshness one week pre-visit.', clip: 'cp-adherence' },
+        2: { title: 'Adherence trend monitor',          subtitle: 'Trend medication + visit attendance against six-month baseline.',          clip: 'cp-adherence' },
+        3: { title: 'Med adjustment safety monitor',    subtitle: 'Watch for BPSD frequency change after a medication adjustment.',           clip: 'bpsd-freq' },
+        4: { title: 'Digital twin progression tracker', subtitle: 'Refresh the biological trajectory weekly + alert on inflection.',          clip: 'digital-twin' },
+        5: { title: 'Pathway sustainment monitor',      subtitle: 'Watch CDR trend against ≤ 0.5 / yr target as the cycle resets.',            clip: 'cdr-stage' },
+      },
+      'guide': {
+        0: { title: 'Eligibility surveillance',         subtitle: 'Watch for changes in Medicare A+B / MA / PACE / hospice status.',          clip: 'cp-adherence' },
+        1: { title: 'Tier accuracy monitor',            subtitle: 'Trend CDR + ZBI to confirm assigned tier still applies.',                  clip: 'cdr-stage' },
+        2: { title: 'Care plan delivery monitor',       subtitle: 'Watch in-home visit + PROMIS-10 + HRSN completion against SLAs.',          clip: 'cp-adherence' },
+        3: { title: 'Caregiver burden tracker',         subtitle: 'Trend ZBI-22 across the year; mid-cycle re-tier when burden shifts.',      clip: 'zbi-score' },
+        4: { title: '9-domain coverage tracker',        subtitle: 'Watch each of the nine GUIDE care domains for SLA breaches.',              clip: 'cp-adherence' },
+        5: { title: 'Annual re-tier readiness',         subtitle: 'Track time-to-next reassessment + caregiver availability.',                clip: 'cdr-stage' },
+      },
+    };
+    const MONITOR_FALLBACK = {
+      title: 'Monitor step (custom)',
+      subtitle: 'Inserted between phases. Clip a monitor signal from the basket below.',
+      clip: null,
+    };
+
+    // A small insertion affordance that sits between phase nodes. Clicking it
+    // opens a popover with the five node types; picking one inserts a custom
+    // node at that position in the visit.
+    const InsertSlot = ({ onAdd }) => {
+      const [open, setOpen] = useState(false);
+      const ref = useRef(null);
+      useEffect(() => {
+        if (!open) return;
+        const onDoc = (e) => {
+          if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onDoc);
+        return () => document.removeEventListener('mousedown', onDoc);
+      }, [open]);
+
+      return (
+        <div className="relative flex flex-col items-center my-1 group" ref={ref}>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-pill text-[10.5px] font-semibold transition-all ${
+              open ? 'opacity-100' : 'opacity-40 group-hover:opacity-100'
+            }`}
+            style={{
+              backgroundColor: '#FBF7F0',
+              border: '1px dashed rgba(32,30,23,0.30)',
+              color: '#5F584A',
+              letterSpacing: '0.06em',
+            }}
+            title="Insert node between phases"
+            aria-haspopup="listbox"
+            aria-expanded={open}
+          >
+            <IconPlus />
+            <span>Insert node</span>
+          </button>
+          {open && (
+            <div
+              role="listbox"
+              className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-cream rounded-xl p-1 z-50 animate-fade-in-up"
+              style={{
+                border: '1px solid rgba(32,30,23,0.14)',
+                boxShadow: '0 8px 24px -8px rgba(32, 30, 23, 0.22), 0 2px 6px rgba(32,30,23,0.08)',
+                minWidth: '180px',
+              }}
+            >
+              <div className="eyebrow text-[9.5px] px-2 py-1 text-inkMuted">Insert node</div>
+              {NODE_TYPES.map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="option"
+                  onClick={(e) => { e.stopPropagation(); onAdd(t.id); setOpen(false); }}
+                  className="w-full text-left px-2 py-1.5 rounded-lg flex items-center gap-2 transition-colors hover:bg-[rgba(32,30,23,0.05)]"
+                >
+                  <span
+                    className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-md"
+                    style={{ backgroundColor: `${t.hex}1A`, color: t.hex }}
+                  >
+                    {t.icon}
+                  </span>
+                  <span className="text-[12.5px] font-semibold" style={{ color: t.hex }}>{t.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const VisitBlock = ({ visitId, pathwayId, activePathway, onSetState, customNodes, onAddCustomNode, onRemoveCustomNode }) => {
       const visit = VISIT_DEFS[visitId];
+      const customsAt = (slotIdx) => customNodes[`${pathwayId}__${visitId}__${slotIdx}`] || [];
+
+      const renderCustomNode = (n, slotIdx) => (
+        <NodeCard
+          key={n.id}
+          node={n}
+          onSetState={onSetState}
+          onRemove={() => onRemoveCustomNode(pathwayId, visitId, slotIdx, n.id)}
+          showConnector={true}
+        />
+      );
+
       return (
         <div
           className="w-full mb-1 rounded-[1.5rem] px-3 pt-3 pb-2"
@@ -1246,16 +1415,26 @@
             <div className="eyebrow" style={{ color: visit.hex, letterSpacing: '0.18em' }}>{visit.code}</div>
             <div className="font-display text-[1rem] text-ink leading-tight mt-0.5 text-center">{visit.label}</div>
           </div>
+
+          {/* Slot before the first phase */}
+          <InsertSlot onAdd={(typeId) => onAddCustomNode(pathwayId, visitId, 0, typeId)} />
+          {customsAt(0).map(n => renderCustomNode(n, 0))}
+
           {visit.phases.map((phase, i) => {
             const nodeId = phaseNodeId(pathwayId, visitId, phase.id);
             const node = activePathway.find(n => n.id === nodeId) || { ...phase, id: nodeId };
+            const slotIdx = i + 1;
+            const after = customsAt(slotIdx);
             return (
-              <NodeCard
-                key={phase.id}
-                node={node}
-                onSetState={onSetState}
-                showConnector={i < visit.phases.length - 1}
-              />
+              <React.Fragment key={phase.id}>
+                <NodeCard
+                  node={node}
+                  onSetState={onSetState}
+                  showConnector={true}
+                />
+                <InsertSlot onAdd={(typeId) => onAddCustomNode(pathwayId, visitId, slotIdx, typeId)} />
+                {after.map(n => renderCustomNode(n, slotIdx))}
+              </React.Fragment>
             );
           })}
         </div>
@@ -1293,7 +1472,7 @@
       </div>
     );
 
-    const DemoCanvas = ({ activePathway, workflowStates, onSetWorkflowState, onSetPrescribableState }) => {
+    const DemoCanvas = ({ activePathway, workflowStates, onSetWorkflowState, onSetPrescribableState, customNodes, onAddCustomNode, onRemoveCustomNode }) => {
       const visiblePathwayIds = PATHWAY_IDS.filter(id => (workflowStates[id] || STATE_OFF) !== STATE_OFF);
       const count = visiblePathwayIds.length;
       const hasAny = count > 0;
@@ -1371,6 +1550,9 @@
                             pathwayId={pid}
                             activePathway={activePathway}
                             onSetState={onSetPrescribableState}
+                            customNodes={customNodes}
+                            onAddCustomNode={onAddCustomNode}
+                            onRemoveCustomNode={onRemoveCustomNode}
                           />
                           {!isLast && <VisitLink nextVisit={VISIT_DEFS[pathway.visits[i + 1]]} />}
                         </React.Fragment>
@@ -1422,10 +1604,73 @@
         guide: STATE_ON,
       });
       const [demoOverrides, setDemoOverrides] = useState({});
+      // User-inserted nodes between phases inside a visit. Keyed by
+      // `${pathwayId}__${visitId}__${slotIndex}` where slotIndex 0 is before
+      // the first phase, 1 between phase 0 and 1, etc.
+      const [customNodes, setCustomNodes] = useState({});
       const scrollRef = useRef(null);
 
       const setWorkflowState = (id, state) => {
         setWorkflowStates(prev => ({ ...prev, [id]: state }));
+      };
+
+      const addCustomNode = (pathwayId, visitId, slotIdx, typeId) => {
+        const type = NODE_TYPES.find(t => t.id === typeId);
+        if (!type) return;
+
+        let title = `${type.label} step (custom)`;
+        let subtitle = 'Inserted between phases. Clip workflows from the basket below.';
+        let states = {};
+
+        if (typeId === 'decide') {
+          const example = (DECIDE_EXAMPLES[visitId] && DECIDE_EXAMPLES[visitId][slotIdx]) || DECIDE_FALLBACK;
+          title = example.title;
+          subtitle = example.subtitle;
+          if (example.clip) {
+            const lib = PRESCRIBABLES.decide || [];
+            const item = lib.find(p => p.id === example.clip);
+            states[example.clip] = item && item.locked ? STATE_APPROVAL : STATE_ON;
+          }
+        } else if (typeId === 'monitor') {
+          const example = (MONITOR_EXAMPLES[visitId] && MONITOR_EXAMPLES[visitId][slotIdx]) || MONITOR_FALLBACK;
+          title = example.title;
+          subtitle = example.subtitle;
+          if (example.clip) {
+            const lib = PRESCRIBABLES.monitor || [];
+            const item = lib.find(p => p.id === example.clip);
+            states[example.clip] = item && item.locked ? STATE_APPROVAL : STATE_ON;
+          }
+        }
+
+        const newNode = {
+          id: `custom-${Math.random().toString(36).substr(2, 9)}`,
+          typeId,
+          type,
+          title,
+          subtitle,
+          data: { states },
+          isCustom: true,
+        };
+        const key = `${pathwayId}__${visitId}__${slotIdx}`;
+        setCustomNodes(prev => ({
+          ...prev,
+          [key]: [...(prev[key] || []), newNode],
+        }));
+      };
+
+      const removeCustomNode = (pathwayId, visitId, slotIdx, nodeId) => {
+        const key = `${pathwayId}__${visitId}__${slotIdx}`;
+        setCustomNodes(prev => ({
+          ...prev,
+          [key]: (prev[key] || []).filter(n => n.id !== nodeId),
+        }));
+        // Drop any per-node state overrides too
+        setDemoOverrides(prev => {
+          if (!prev[nodeId]) return prev;
+          const next = { ...prev };
+          delete next[nodeId];
+          return next;
+        });
       };
 
       const addNode = (nodeType) => {
@@ -1580,6 +1825,9 @@
                 workflowStates={workflowStates}
                 onSetWorkflowState={setWorkflowState}
                 onSetPrescribableState={setPrescribableState}
+                customNodes={customNodes}
+                onAddCustomNode={addCustomNode}
+                onRemoveCustomNode={removeCustomNode}
               />
             )}
           </div>
