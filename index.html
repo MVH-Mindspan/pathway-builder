@@ -231,6 +231,65 @@
         radial-gradient(circle at 20% 30%, rgba(168, 67, 31, 0.025), transparent 40%),
         radial-gradient(circle at 80% 70%, rgba(8, 54, 48, 0.02), transparent 40%);
     }
+
+    /* Artifact drawer — slide-in panel that surfaces the live runtime artifact
+       a particular pathway node produces (pre-visit briefing, MoCA delivery,
+       digital-twin trajectory). Right-edge slide-in at lg+, bottom sheet at <lg. */
+    .artifact-drawer-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      background-color: rgba(32, 30, 23, 0.36);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.32s cubic-bezier(0.22, 0.61, 0.36, 1);
+    }
+    .artifact-drawer-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .artifact-drawer {
+      position: fixed;
+      background-color: #FBF7F0;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid rgba(32, 30, 23, 0.14);
+      box-shadow:
+        -24px 0 48px -16px rgba(32, 30, 23, 0.22),
+        0 1px 2px rgba(32, 30, 23, 0.05);
+      transition: transform 0.42s cubic-bezier(0.22, 0.61, 0.36, 1);
+    }
+    @media (min-width: 1024px) {
+      .artifact-drawer {
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: clamp(420px, 44rem, 52vw);
+        transform: translateX(100%);
+        border-left: 1.5px solid rgba(32, 30, 23, 0.18);
+      }
+      .artifact-drawer.open { transform: translateX(0); }
+    }
+    @media (max-width: 1023px) {
+      .artifact-drawer {
+        left: 0;
+        right: 0;
+        bottom: 0;
+        top: auto;
+        height: 92vh;
+        border-radius: 1.5rem 1.5rem 0 0;
+        transform: translateY(100%);
+        border-top: 1.5px solid rgba(32, 30, 23, 0.18);
+        box-shadow:
+          0 -20px 40px -16px rgba(32, 30, 23, 0.22),
+          0 1px 2px rgba(32, 30, 23, 0.05);
+      }
+      .artifact-drawer.open { transform: translateY(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .artifact-drawer, .artifact-drawer-backdrop { transition: none; }
+    }
   </style>
 
   <!-- React & ReactDOM -->
@@ -468,7 +527,7 @@
             ['guide-plan', 'caregiver-support']),
           phaseNode('guide-p4', 'monitor', 'Ongoing care (9 domains)',
             '24/7 access, tier-based contact, BPSD, med mgmt, HRSN, respite.',
-            ['cp-adherence', 'promis-10']),
+            ['cp-adherence', 'promis-10', 'digital-twin']),
           phaseNode('guide-p5', 'outcome', 'Annual reassessment + re-tier',
             'Re-administer assessments; update PAAF + tier; record retention 6 years.',
             ['guide-compliance']),
@@ -489,6 +548,57 @@
     // Workflows the referral root toggles. Each pathway is a protocol that
     // Agilon referrals may follow; enabling one opens its column in the canvas.
     const WORKFLOWS = PATHWAY_IDS.map(id => ({ id, ...DEMO_PATHWAYS[id] }));
+
+    // Single unified demo patient. Used by every artifact drawer that surfaces
+    // patient-level data so screenshots, briefings, and trend charts all read
+    // as the same person. Never seed this with real PHI.
+    const DEMO_PATIENT = {
+      name: 'Jane Sample',
+      lastFirst: 'Sample, Jane',
+      dob: '1948-03-11',
+      ageYears: 78,
+      sex: 'Female',
+      email: 'demo-patient@mindspan.demo',
+      mrn: 'DEMO-0000-0001',
+      phone: '(555) 010-1948',
+    };
+
+    // MoCA score timeline used by the digital-twin artifact + cross-referenced by
+    // the entry-points artifact (each card cites which delivery channel produced
+    // which datapoint). Realistic mild-decline trajectory with one rebound.
+    const MOCA_TIMELINE = [
+      { date: '2024-11-04', score: 26, channel: 'athena',    label: 'In-clinic baseline (Athena)' },
+      { date: '2025-02-18', score: 24, channel: 'mindy',     label: 'Quarterly at-home (Mindy AI)' },
+      { date: '2025-06-10', score: 22, channel: 'caregiver', label: 'Caregiver-assisted (assessment.mindspan.co)' },
+      { date: '2025-09-22', score: 23, channel: 'mindy',     label: 'Quarterly at-home (Mindy AI)' },
+      { date: '2026-01-15', score: 21, channel: 'athena',    label: 'Annual in-clinic (Athena 99483)' },
+      { date: '2026-05-06', score: 20, channel: 'caregiver', label: 'Caregiver-assisted (assessment.mindspan.co)' },
+    ];
+
+    // Format a YYYY-MM-DD as "Mon D, YYYY" for human-readable display in artifacts.
+    const formatArtifactDate = (iso) => {
+      const [y, m, d] = iso.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+    };
+
+    // Map an artifact id to its drawer title shown in the sticky header.
+    const ARTIFACT_TITLES = {
+      'pre-visit-summary': 'GPS · 5-minute pre-visit briefing',
+      'entry-points':      'Cognitive screening · 3 delivery channels',
+      'digital-twin':      'Digital twin · longitudinal trajectory',
+    };
+
+    // Which artifact (if any) a phase-node id surfaces. Phase-node ids look like
+    // `${pathwayId}__${visitId}__${phaseId}`; we anchor by suffix so the same
+    // artifact attaches across every pathway that shares the underlying visit.
+    const getArtifactForNode = (nodeId) => {
+      if (!nodeId) return null;
+      if (nodeId.endsWith('__99205__205-pre'))    return 'pre-visit-summary';
+      if (nodeId.endsWith('__99215__215-monitor')) return 'digital-twin';
+      if (nodeId.endsWith('__guide__guide-p4'))    return 'digital-twin';
+      return null;
+    };
 
     // Build the canonical phase node ID for a given pathway + visit + phase. Each
     // pathway gets its OWN copies of a visit's phase nodes so independent column
@@ -620,7 +730,7 @@
     // Each node shows a list of prescribables that can be toggled on/off (added/removed
     // from the patient's flow). Locked prescribables require an escalation approval click
     // before they can be added.
-    const NodeCard = ({ node, onRemove, onSetState, showConnector }) => {
+    const NodeCard = ({ node, onRemove, onSetState, showConnector, onOpenArtifact }) => {
       const prescribables = node.prescribables || PRESCRIBABLES[node.typeId] || [];
       const states = node.data?.states || {};
       const stateOf = (pid) => states[pid] || STATE_OFF;
@@ -628,6 +738,10 @@
       const title = node.title || node.type.label;
       const subtitle = node.subtitle;
       const hex = node.type.hex;
+      const artifactId = onOpenArtifact ? getArtifactForNode(node.id) : null;
+      const artifactLabel = artifactId === 'pre-visit-summary' ? 'GPS briefing'
+        : artifactId === 'digital-twin' ? 'Digital twin'
+        : 'View live artifact';
 
       return (
         <div className="relative flex flex-col items-center w-full">
@@ -655,6 +769,12 @@
                 <h3 className="font-display font-medium text-[1.3125rem] text-ink leading-tight">{title}</h3>
                 {subtitle && <p className="text-[13px] text-inkSoft mt-1.5 leading-snug">{subtitle}</p>}
               </div>
+              {artifactId && (
+                <ViewArtifactButton
+                  onClick={() => onOpenArtifact(artifactId)}
+                  label={artifactLabel}
+                />
+              )}
             </div>
 
             {(() => {
@@ -1045,7 +1165,7 @@
       { pathwayId: 'guide',    range: 'CMS GUIDE eligible', note: 'GUIDE overlay layered in parallel' },
     ];
 
-    const CognitiveGateCard = ({ visiblePathwayIds }) => {
+    const CognitiveGateCard = ({ visiblePathwayIds, onOpenArtifact }) => {
       const hex = COG_GATE_HEX;
       const [states, setStates] = useState({ 'moca-remote': STATE_ON });
       const stateOf = (id) => states[id] || STATE_OFF;
@@ -1078,6 +1198,12 @@
                 <h3 className="font-display font-medium text-[1.3125rem] text-ink leading-tight">Cognitive testing gate</h3>
                 <p className="text-[13px] text-inkSoft mt-1.5 leading-snug">Clipped-in screens score the referral and filter it to the appropriate severity pathway.</p>
               </div>
+              {onOpenArtifact && (
+                <ViewArtifactButton
+                  onClick={() => onOpenArtifact('entry-points')}
+                  label="3 delivery channels"
+                />
+              )}
             </div>
 
             <div className="mt-3 pt-4 border-t border-soft-strong">
@@ -1446,7 +1572,7 @@
       );
     };
 
-    const VisitBlock = ({ visitId, pathwayId, activePathway, onSetState, customNodes, onAddCustomNode, onRemoveCustomNode }) => {
+    const VisitBlock = ({ visitId, pathwayId, activePathway, onSetState, customNodes, onAddCustomNode, onRemoveCustomNode, onOpenArtifact }) => {
       const visit = VISIT_DEFS[visitId];
       const customsAt = (slotIdx) => customNodes[`${pathwayId}__${visitId}__${slotIdx}`] || [];
 
@@ -1457,6 +1583,7 @@
           onSetState={onSetState}
           onRemove={() => onRemoveCustomNode(pathwayId, visitId, slotIdx, n.id)}
           showConnector={true}
+          onOpenArtifact={onOpenArtifact}
         />
       );
 
@@ -1485,6 +1612,7 @@
                   node={node}
                   onSetState={onSetState}
                   showConnector={true}
+                  onOpenArtifact={onOpenArtifact}
                 />
                 <InsertSlot onAdd={(typeId) => onAddCustomNode(pathwayId, visitId, slotIdx, typeId)} />
                 {after.map(n => renderCustomNode(n, slotIdx))}
@@ -1526,10 +1654,958 @@
       </div>
     );
 
+    // ---- Demo-artifact infrastructure -------------------------------------
+    // Drawer + affordance + four artifact bodies. Every artifact uses the same
+    // DEMO_PATIENT identity so the showcase reads as one coherent person across
+    // every pathway node.
+
+    const IconExternalArrow = ({ size = 11 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <line x1="5" y1="12" x2="19" y2="12"></line>
+        <polyline points="12 5 19 12 12 19"></polyline>
+      </svg>
+    );
+
+    const IconClose = ({ size = 16 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    );
+
+    // Demo patient banner — pinned to the top of the drawer so every
+    // patient-data artifact reads "not real PHI" before any clinical content.
+    const DemoPatientBanner = () => (
+      <div
+        className="flex items-center gap-2 px-3 py-2 rounded-lg"
+        style={{
+          backgroundColor: 'rgba(251, 77, 23, 0.10)',
+          border: '1px solid rgba(251, 77, 23, 0.40)',
+          color: '#c93a0e',
+        }}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+        <span className="eyebrow text-[10.5px]" style={{ color: '#c93a0e' }}>Demo patient · not real PHI · {DEMO_PATIENT.name}</span>
+      </div>
+    );
+
+    // Small, accent-colored chevron button that sits in a node card header.
+    // Clicking it routes through DemoCanvas's selectedArtifact state and opens
+    // the drawer with the corresponding artifact body.
+    const ViewArtifactButton = ({ onClick, label = 'View live artifact' }) => (
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onClick(); }}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill text-[11px] font-semibold transition-colors shrink-0"
+        style={{
+          backgroundColor: 'rgba(251,77,23,0.10)',
+          border: '1px solid rgba(251,77,23,0.40)',
+          color: '#c93a0e',
+          letterSpacing: '0.04em',
+        }}
+        title="Open the live artifact this node produces in the showcase drawer"
+      >
+        <span>{label}</span>
+        <IconExternalArrow />
+      </button>
+    );
+
+    // ---- Component 4: three-way assessment entry points -------------------
+    // Three stacked cards on one screen. Athena (in-clinic), Mindy (at-home AI),
+    // and Caregiver (assessment.mindspan.co). Each card carries a "best for"
+    // tagline, three workflow bullets, and a visual representative of the
+    // delivery channel. Source screenshots scrubbed to DEMO_PATIENT.
+
+    const ATHENA_PROTOTYPE_URL = 'https://v0.app/chat/pdf-injection-with-pdf-lib-uC8uQ2UTuUo?ref=ABR7UR';
+
+    // Full MoCA test structure — 8 sections, 30 points total. Lifted inline
+    // because v0.app's CSP blocks iframe embedding outside its allow-list.
+    const ATHENA_MOCA_SECTIONS = [
+      {
+        id: 'visuospatial', letter: 'A', label: 'Visuospatial / Executive', max: 5,
+        items: [
+          { id: 'trail-making',  label: 'Trail Making',   points: 1, prompt: 'Draw a line connecting the following circles in ascending order, alternating between numbers and letters: 1-A-2-B-3-C-4-D-5-E.' },
+          { id: 'cube-copy',     label: 'Cube Copy',      points: 1, prompt: 'Copy this drawing as accurately as you can.' },
+          { id: 'clock-contour', label: 'Clock - Contour', points: 1, prompt: 'Draw a clock. Put in all the numbers.' },
+          { id: 'clock-numbers', label: 'Clock - Numbers', points: 1, prompt: 'Make sure all 12 numbers are present and in the correct positions.' },
+          { id: 'clock-hands',   label: 'Clock - Hands',   points: 1, prompt: 'Set the hands to ten past eleven.' },
+        ],
+      },
+      {
+        id: 'naming', letter: 'B', label: 'Naming', max: 3,
+        items: [
+          { id: 'lion',  label: 'Lion',       points: 1, prompt: 'Name the animal shown.' },
+          { id: 'rhino', label: 'Rhinoceros', points: 1, prompt: 'Name the animal shown.' },
+          { id: 'camel', label: 'Camel',      points: 1, prompt: 'Name the animal shown.' },
+        ],
+      },
+      {
+        id: 'memory', letter: 'C', label: 'Memory (registration)', max: 0, scored: false,
+        items: [
+          { id: 'trial-1', label: 'First trial',  points: 0, prompt: 'Patient repeats: face · velvet · church · daisy · red.' },
+          { id: 'trial-2', label: 'Second trial', points: 0, prompt: 'Re-administer the same five words; patient repeats again.' },
+        ],
+      },
+      {
+        id: 'attention', letter: 'D', label: 'Attention', max: 6,
+        items: [
+          { id: 'digits-forward',  label: 'Digits forward',  points: 1, prompt: 'Repeat the sequence: 2 · 1 · 8 · 5 · 4.' },
+          { id: 'digits-backward', label: 'Digits backward', points: 1, prompt: 'Repeat in reverse: 7 · 4 · 2.' },
+          { id: 'vigilance',       label: 'Vigilance · Letter A tap', points: 1, prompt: 'Patient taps once with each letter A read aloud from a 30-letter list. ≤1 error scores.' },
+          { id: 'serial-7s',       label: 'Serial 7 subtraction',     points: 3, prompt: 'Subtract 7 from 100 and continue. 4–5 correct = 3 pts · 2–3 = 2 pts · 1 = 1 pt · 0 = 0 pts.' },
+        ],
+      },
+      {
+        id: 'language', letter: 'E', label: 'Language', max: 3,
+        items: [
+          { id: 'rep-1',     label: 'Sentence repetition · 1', points: 1, prompt: '"I only know that John is the one to help today."' },
+          { id: 'rep-2',     label: 'Sentence repetition · 2', points: 1, prompt: '"The cat always hid under the couch when dogs were in the room."' },
+          { id: 'fluency-f', label: 'Verbal fluency · F words', points: 1, prompt: 'Patient names as many F words as possible in 60 seconds. ≥11 scores.' },
+        ],
+      },
+      {
+        id: 'abstraction', letter: 'F', label: 'Abstraction', max: 2,
+        items: [
+          { id: 'abs-1', label: 'Train + bicycle', points: 1, prompt: 'How are a train and a bicycle alike? (Both are means of transportation.)' },
+          { id: 'abs-2', label: 'Watch + ruler',   points: 1, prompt: 'How are a watch and a ruler alike? (Both are measuring instruments.)' },
+        ],
+      },
+      {
+        id: 'delayed-recall', letter: 'G', label: 'Delayed Recall', max: 5,
+        items: [
+          { id: 'face',   label: 'Face',   points: 1, prompt: 'I read you some words earlier. Can you tell me as many as you can remember?' },
+          { id: 'velvet', label: 'Velvet', points: 1, prompt: 'I read you some words earlier. Can you tell me as many as you can remember?' },
+          { id: 'church', label: 'Church', points: 1, prompt: 'I read you some words earlier. Can you tell me as many as you can remember?' },
+          { id: 'daisy',  label: 'Daisy',  points: 1, prompt: 'I read you some words earlier. Can you tell me as many as you can remember?' },
+          { id: 'red',    label: 'Red',    points: 1, prompt: 'I read you some words earlier. Can you tell me as many as you can remember?' },
+        ],
+      },
+      {
+        id: 'orientation', letter: 'H', label: 'Orientation', max: 6,
+        items: [
+          { id: 'date',  label: 'Date',  points: 1, prompt: 'What is today\'s date?' },
+          { id: 'month', label: 'Month', points: 1, prompt: 'What is the month?' },
+          { id: 'year',  label: 'Year',  points: 1, prompt: 'What is the year?' },
+          { id: 'day',   label: 'Day of the week', points: 1, prompt: 'What day of the week is it?' },
+          { id: 'place', label: 'Place',  points: 1, prompt: 'What is the name of this place?' },
+          { id: 'city',  label: 'City',   points: 1, prompt: 'What city are we in?' },
+        ],
+      },
+    ];
+
+    const AthenaCard = () => {
+      const initialExpanded = useMemo(
+        () => Object.fromEntries(ATHENA_MOCA_SECTIONS.map((s) => [s.id, s.id === 'visuospatial'])),
+        []
+      );
+      const [expanded, setExpanded] = useState(initialExpanded);
+      const [scores, setScores] = useState({}); // { itemId: number }
+
+      const toggleSection = (id) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+      const setAllSections = (open) =>
+        setExpanded(Object.fromEntries(ATHENA_MOCA_SECTIONS.map((s) => [s.id, open])));
+
+      const setItemScore = (itemId, value) =>
+        setScores((prev) => ({ ...prev, [itemId]: value }));
+
+      const scoredItemIds = new Set(
+        ATHENA_MOCA_SECTIONS.flatMap((s) => (s.scored === false ? [] : s.items.map((it) => it.id)))
+      );
+      const totalScore = Object.entries(scores)
+        .filter(([id]) => scoredItemIds.has(id))
+        .reduce((sum, [, v]) => sum + (typeof v === 'number' ? v : 0), 0);
+
+      const sectionScore = (section) =>
+        section.items.reduce(
+          (sum, it) => sum + (typeof scores[it.id] === 'number' ? scores[it.id] : 0),
+          0
+        );
+
+      return (
+        <div className="rounded-xl bg-cream p-0 overflow-hidden" style={{ border: '1px solid rgba(32,30,23,0.14)' }}>
+          <div
+            className="px-4 py-2.5 flex items-center justify-between gap-2"
+            style={{ backgroundColor: '#5C3994', color: '#FBF7F0' }}
+          >
+            <span className="text-[12px] font-semibold tracking-wide truncate">Cognitive Screening · athenaOne embed</span>
+            <a
+              href={ATHENA_PROTOTYPE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] underline decoration-dotted hover:opacity-90 shrink-0"
+              style={{ color: '#FBF7F0' }}
+            >
+              Open v0 prototype ↗
+            </a>
+          </div>
+
+          <div className="px-4 py-3" style={{ backgroundColor: '#F4F1FA', borderBottom: '1px solid rgba(92,57,148,0.18)' }}>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="min-w-0">
+                <div className="text-[12.5px] font-semibold text-ink">{DEMO_PATIENT.lastFirst}</div>
+                <div className="text-[11px] text-inkSoft mt-0.5">
+                  DOB: {DEMO_PATIENT.dob} · MRN: {DEMO_PATIENT.mrn}
+                </div>
+                <div className="text-[10.5px] text-inkMuted mt-0.5">
+                  2026-05-26 10:30 AM · Dr. Sarah Chen, MD
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md"
+                  style={{ backgroundColor: 'rgba(32,30,23,0.06)', color: '#5F584A' }}
+                >
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  <span>Saved</span>
+                </span>
+                <span
+                  className="inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-md font-semibold"
+                  style={{ backgroundColor: '#5C3994', color: '#FBF7F0' }}
+                >
+                  Total: {totalScore}/30
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setAllSections(true)}
+                className="inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-md transition-colors"
+                style={{ backgroundColor: '#FBF7F0', border: '1px solid rgba(92,57,148,0.22)', color: '#5C3994' }}
+              >
+                <svg width="8" height="8" viewBox="0 0 12 12" fill="none"><path d="M2.5 4.5l3.5 3 3.5-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                Expand All
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllSections(false)}
+                className="inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-md transition-colors"
+                style={{ backgroundColor: '#FBF7F0', border: '1px solid rgba(92,57,148,0.22)', color: '#5C3994' }}
+              >
+                <svg width="8" height="8" viewBox="0 0 12 12" fill="none"><path d="M2.5 7.5l3.5-3 3.5 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                Collapse All
+              </button>
+              <button
+                type="button"
+                onClick={() => {/* no-op for prototype */}}
+                className="inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-md transition-colors"
+                style={{ backgroundColor: '#FBF7F0', border: '1px solid rgba(92,57,148,0.22)', color: '#5C3994' }}
+              >
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+                Next Unanswered
+              </button>
+            </div>
+          </div>
+
+          <div className="px-3 py-3 flex flex-col gap-2.5" style={{ backgroundColor: '#FBFCFA' }}>
+            {ATHENA_MOCA_SECTIONS.map((section) => {
+              const isOpen = expanded[section.id];
+              const sectionLabel = section.scored === false ? 'not scored' : `${sectionScore(section)}/${section.max}`;
+              return (
+                <div
+                  key={section.id}
+                  className="rounded-lg overflow-hidden"
+                  style={{ border: '1px solid rgba(32,30,23,0.10)', backgroundColor: '#FBF7F0' }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(section.id)}
+                    className="w-full flex items-center justify-between px-3 py-2 text-left transition-colors hover:bg-[rgba(92,57,148,0.04)]"
+                    aria-expanded={isOpen}
+                  >
+                    <span className="text-[12.5px] font-semibold" style={{ color: '#5C3994' }}>
+                      {section.letter}. {section.label}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-[10.5px] text-inkMuted">{sectionLabel}</span>
+                      <svg
+                        width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true"
+                        style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.18s ease' }}
+                      >
+                        <path d="M2.5 4.5l3.5 3 3.5-3" stroke="#5C3994" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <div className="px-2.5 pb-2.5 pt-1 flex flex-col gap-1.5">
+                      {section.items.map((item) => {
+                        const v = scores[item.id];
+                        const isSkipped = v === 'skip';
+                        const isScored = typeof v === 'number';
+                        return (
+                          <div
+                            key={item.id}
+                            className="flex items-start gap-2.5 px-2.5 py-2 rounded-md"
+                            style={{ backgroundColor: '#FFFFFF', border: '1px solid rgba(92,57,148,0.14)' }}
+                          >
+                            <span
+                              className="mt-0.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded-full shrink-0"
+                              style={{
+                                border: '1.5px solid #5C3994',
+                                backgroundColor: isScored && v > 0 ? '#5C3994' : '#FBF7F0',
+                              }}
+                              aria-hidden="true"
+                            >
+                              {isScored && v > 0 && (
+                                <svg width="7" height="7" viewBox="0 0 12 12" fill="none">
+                                  <path d="M2 6.5l2.5 2.5L10 3.5" stroke="#FBF7F0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              )}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[12px] font-medium text-ink">
+                                {item.label}{' '}
+                                <span className="text-inkMuted font-normal">({item.points} pt{item.points === 1 ? '' : 's'})</span>
+                              </div>
+                              <div className="text-[11px] text-inkSoft mt-0.5 leading-snug">{item.prompt}</div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setItemScore(item.id, 'skip')}
+                                className="text-[10px] px-1.5 py-0.5 rounded transition-colors"
+                                style={{
+                                  color: isSkipped ? '#FBF7F0' : '#5F584A',
+                                  backgroundColor: isSkipped ? '#5F584A' : 'transparent',
+                                  border: '1px solid rgba(32,30,23,0.14)',
+                                }}
+                                aria-pressed={isSkipped}
+                              >
+                                Skip
+                              </button>
+                              {[0, 1].map((n) => (
+                                <button
+                                  key={n}
+                                  type="button"
+                                  onClick={() => setItemScore(item.id, n)}
+                                  className="text-[10.5px] w-6 h-6 inline-flex items-center justify-center rounded-full transition-colors"
+                                  style={{
+                                    color: isScored && v === n ? '#FBF7F0' : '#5C3994',
+                                    backgroundColor: isScored && v === n ? '#5C3994' : '#FBF7F0',
+                                    border: '1px solid rgba(92,57,148,0.30)',
+                                  }}
+                                  aria-pressed={isScored && v === n}
+                                >
+                                  {n}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    };
+
+    const MindyCard = () => (
+      <div className="rounded-xl bg-cream p-0 overflow-hidden" style={{ border: '1px solid rgba(32,30,23,0.14)' }}>
+        <div
+          className="px-4 py-2.5 flex items-center justify-between"
+          style={{ backgroundColor: '#083630', color: '#FBF7F0' }}
+        >
+          <span className="text-[12px] font-semibold tracking-wide">Mindy AI · at-home conversational delivery</span>
+          <span className="text-[11px] opacity-80">YouTube preview</span>
+        </div>
+        <div className="relative" style={{ aspectRatio: '16 / 9', backgroundColor: '#000' }}>
+          <iframe
+            title="Mindy AI assessment preview"
+            src="https://www.youtube-nocookie.com/embed/_e8psq9FPVY?rel=0&modestbranding=1&cc_load_policy=1"
+            allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0 }}
+          />
+        </div>
+        <div className="px-4 py-3 text-[12px] text-inkSoft">
+          Captions on by default · muted on first play · autoplay off. The player surfaces a real preview of Mindy guiding {DEMO_PATIENT.name.split(' ')[0]} through delayed-recall items conversationally.
+        </div>
+      </div>
+    );
+
+    const CaregiverCard = () => (
+      <div className="rounded-xl bg-cream p-0 overflow-hidden" style={{ border: '1px solid rgba(32,30,23,0.14)' }}>
+        <div
+          className="px-4 py-2.5 flex items-center justify-between"
+          style={{ backgroundColor: '#1a4d3e', color: '#FBF7F0' }}
+        >
+          <span className="text-[12px] font-semibold tracking-wide">assessment.mindspan.co · caregiver-supported</span>
+          <a
+            href="https://assessment.mindspan.co/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] underline decoration-dotted hover:opacity-90"
+            style={{ color: '#FBF7F0' }}
+          >
+            Open live site ↗
+          </a>
+        </div>
+        <a
+          href="https://assessment.mindspan.co/"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Open assessment.mindspan.co in a new tab"
+          className="block"
+        >
+          <img
+            src="assessment-landing.png"
+            alt="assessment.mindspan.co landing page — Start your free cognitive assessment today, with For Myself and For a Loved One options."
+            loading="lazy"
+            className="block w-full h-auto"
+            style={{ borderTop: '1px solid rgba(32,30,23,0.06)' }}
+          />
+        </a>
+      </div>
+    );
+
+    const ENTRY_POINTS = [
+      {
+        id: 'mindy',
+        accent: '#083630',
+        title: 'Mindy AI · at-home',
+        bestFor: 'Best for: lower-friction quarterly check-ins for patients comfortable with conversational AI.',
+        bullets: [
+          'Patient opens Mindy on phone or tablet — captioned, muted by default, voice-guided.',
+          'Conversational delivery of MoCA-equivalent items; ~10 minutes; results streamed back to chart.',
+          'Bridges quarterly gaps between in-clinic visits without consuming clinic capacity.',
+        ],
+        Render: MindyCard,
+      },
+      {
+        id: 'athena',
+        accent: '#5C3994',
+        title: 'Athena · in-clinic',
+        bestFor: 'Best for: comprehensive cognitive screening during a billed encounter (99205 / 99483).',
+        bullets: [
+          'MA stages the encounter; provider administers MoCA in exam room with caregiver present.',
+          'Score posts directly into the patient chart in Athena before the visit closes.',
+          'Counts toward CMS GUIDE assessment cadence + appears in the digital twin trajectory.',
+        ],
+        Render: AthenaCard,
+      },
+      {
+        id: 'caregiver',
+        accent: '#1a4d3e',
+        title: 'Caregiver web · assessment.mindspan.co',
+        bestFor: 'Best for: caregiver-supported screening when the patient needs setup help or prompt support.',
+        bullets: [
+          'Caregiver selects "For a Loved One" and sends the assessment to the patient — or sits beside them.',
+          'Same MoCA-style item set as the AI / in-clinic paths so scores trend across channels.',
+          'Routes the family into care recommendations + a follow-up booking inside Mindspan.',
+        ],
+        Render: CaregiverCard,
+      },
+    ];
+
+    const EntryPointsArtifact = () => (
+      <div className="flex flex-col gap-4 px-5 py-5">
+        <p className="text-[13px] text-inkSoft leading-relaxed">
+          The same cognitive screen, delivered through three channels. Scores written by any channel feed the same digital twin and trigger the same severity-routing through the cognitive gate above.
+        </p>
+        {ENTRY_POINTS.map((ep) => {
+          const Inner = ep.Render;
+          return (
+            <section
+              key={ep.id}
+              className="rounded-[1.125rem] bg-cream p-4"
+              style={{
+                border: '1px solid rgba(32,30,23,0.10)',
+                boxShadow: '0 1px 2px rgba(32,30,23,0.04), 0 6px 18px -12px rgba(32,30,23,0.12)',
+              }}
+            >
+              <div className="flex items-start gap-3 mb-3">
+                <div
+                  className="px-2 py-1 rounded-md text-[10.5px] font-semibold uppercase tracking-[0.12em] shrink-0"
+                  style={{ backgroundColor: `${ep.accent}1A`, color: ep.accent, border: `1px solid ${ep.accent}33` }}
+                >
+                  {ep.id}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-display text-[1.0625rem] text-ink leading-tight">{ep.title}</h4>
+                  <p className="text-[12px] text-inkSoft mt-1 leading-snug">{ep.bestFor}</p>
+                </div>
+              </div>
+              <ul className="text-[12.5px] text-ink flex flex-col gap-1 mb-3 pl-1">
+                {ep.bullets.map((b, i) => (
+                  <li key={i} className="flex items-start gap-2 leading-snug">
+                    <span className="mt-1 w-1 h-1 rounded-full shrink-0" style={{ backgroundColor: ep.accent }}></span>
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+              <Inner />
+            </section>
+          );
+        })}
+      </div>
+    );
+
+    // ---- Component 3: GPS pre-visit summary -------------------------------
+    // Two states the viewer can toggle: empty briefing (the "Generate"
+    // call-to-action) and a populated five-minute briefing keyed on the
+    // metformin + losartan medication list shown in the source GPS screenshot.
+
+    const GPS_SIDEBAR = [
+      { id: 'overview',     label: 'Overview',         active: false },
+      { id: 'gps',          label: 'GPS Summary',      active: true  },
+      { id: 'demographics', label: 'Demographics',     active: false },
+      { id: 'conditions',   label: 'Conditions',       active: false },
+      { id: 'medications',  label: 'Medications',      active: false },
+      { id: 'diagnostics',  label: 'Diagnostics',      active: false },
+      { id: 'vitals',       label: 'Vitals',           active: false },
+      { id: 'encounters',   label: 'Encounters & Notes', active: false },
+      { id: 'documents',    label: 'Documents',        active: false },
+      { id: 'allergies',    label: 'Allergies',        active: false },
+      { id: 'immunizations',label: 'Immunizations',    active: false },
+      { id: 'care-team',    label: 'Care Team',        active: false },
+    ];
+
+    const GPS_EMPTY_CARDS = [
+      { title: 'Conditions',   blurb: "We didn't find any condition records for this patient." },
+      { title: 'Medications',  blurb: "We didn't find any medication records for this patient." },
+      { title: 'Select Labs',  blurb: "We didn't find any lab records for this patient." },
+      { title: 'ED & IP Visits', blurb: "We didn't find any emergency or inpatient records for this patient." },
+    ];
+
+    const GPS_POPULATED_SECTIONS = [
+      {
+        id: 'demographics',
+        title: 'Patient demographics',
+        body: `${DEMO_PATIENT.name.toUpperCase()} is a ${DEMO_PATIENT.ageYears}-year-old female born ${DEMO_PATIENT.dob}.`,
+      },
+      {
+        id: 'general',
+        title: 'General summary',
+        body: 'Active medications include metformin hydrochloride 500 mg extended release daily (¹) and losartan potassium 50 mg daily (²), suggesting management of type 2 diabetes and hypertension. No additional clinical summary documentation available beyond medication evidence.',
+      },
+      {
+        id: 'pathology',
+        title: 'Latest pathology',
+        body: 'not documented',
+      },
+      {
+        id: 'history',
+        title: 'Latest history and physical',
+        body: 'not documented',
+      },
+      {
+        id: 'labs',
+        title: 'Latest labs',
+        body: 'A1c (last drawn 2026-02-04): 7.4%. eGFR: 62 mL/min/1.73m². Lipid panel within target range; full panel queued for the upcoming 99483 care-plan visit.',
+      },
+      {
+        id: 'ed-ip',
+        title: 'ED & IP visits (prior 24 mo)',
+        body: 'No emergency department or inpatient encounters on file.',
+      },
+    ];
+
+    const GpsSidebar = ({ activeId = 'gps' }) => (
+      <aside className="w-[200px] shrink-0 border-r bg-[#F7FAF6]" style={{ borderColor: 'rgba(32,30,23,0.10)' }}>
+        <div className="px-3 py-3 border-b" style={{ borderColor: 'rgba(32,30,23,0.10)' }}>
+          <div className="flex items-center gap-2">
+            <div
+              className="w-8 h-8 rounded-full inline-flex items-center justify-center text-[11px] font-bold"
+              style={{ backgroundColor: '#1a4d3e', color: '#FBF7F0' }}
+            >
+              JS
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11.5px] font-semibold text-ink truncate">{DEMO_PATIENT.name}</div>
+              <div className="text-[10px] text-inkMuted">DOB {DEMO_PATIENT.dob} · F</div>
+            </div>
+          </div>
+        </div>
+        <nav className="py-1.5">
+          {GPS_SIDEBAR.map((item) => {
+            const active = item.id === activeId;
+            return (
+              <div
+                key={item.id}
+                className="flex items-center gap-2 px-3 py-1.5 text-[12px]"
+                style={{
+                  color: active ? '#1a4d3e' : '#5F584A',
+                  backgroundColor: active ? 'rgba(26,77,62,0.10)' : 'transparent',
+                  borderLeft: active ? '3px solid #1a4d3e' : '3px solid transparent',
+                  fontWeight: active ? 600 : 500,
+                }}
+              >
+                <span>{item.label}</span>
+              </div>
+            );
+          })}
+        </nav>
+      </aside>
+    );
+
+    const PreVisitSummaryArtifact = () => {
+      const [state, setState] = useState('empty'); // 'empty' | 'populated'
+      return (
+        <div className="flex flex-col gap-3 px-5 py-5">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[13px] text-inkSoft leading-relaxed flex-1">
+              The 5-minute briefing the provider sees inside Athena before {DEMO_PATIENT.name.split(' ')[0]} walks into the exam room. Generated by GPS from the patient's chart.
+            </p>
+            <div className="inline-flex items-center bg-sand border border-soft rounded-pill p-1 shrink-0">
+              {[
+                { id: 'empty',     label: 'Empty' },
+                { id: 'populated', label: 'Populated' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setState(opt.id)}
+                  className={`px-3 py-1 rounded-pill text-[11.5px] font-semibold transition-all ${
+                    state === opt.id ? 'bg-teal text-cream shadow-sm' : 'text-inkSoft hover:text-ink'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div
+            className="rounded-xl overflow-hidden bg-cream"
+            style={{ border: '1px solid rgba(32,30,23,0.14)', boxShadow: '0 1px 2px rgba(32,30,23,0.04), 0 6px 18px -12px rgba(32,30,23,0.14)' }}
+          >
+            <div className="flex" style={{ minHeight: '380px' }}>
+              <GpsSidebar activeId={state === 'empty' ? 'overview' : 'gps'} />
+              <div className="flex-1 min-w-0 p-4">
+                {state === 'empty' ? (
+                  <>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div className="text-[13px] text-ink">
+                        <span className="text-inkSoft">✨ </span>
+                        Generate a 5-minute briefing for this patient
+                        <span className="ml-2 text-[10.5px] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: 'rgba(32,30,23,0.08)', color: '#5F584A' }}>2/10</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setState('populated')}
+                        className="btn-pill text-[12px] px-3.5 py-1.5"
+                        style={{ backgroundColor: '#1a4d3e', color: '#FBF7F0' }}
+                      >
+                        Generate Patient Summary
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {GPS_EMPTY_CARDS.map((c) => (
+                        <div
+                          key={c.title}
+                          className="rounded-lg p-4 text-center bg-[#FBFCFA]"
+                          style={{ border: '1px solid rgba(32,30,23,0.10)' }}
+                        >
+                          <div className="flex items-center justify-center gap-1.5 mb-2">
+                            <span className="text-[11px] font-semibold text-ink">{c.title}</span>
+                            <span className="text-[10px] text-inkMuted">ⓘ</span>
+                          </div>
+                          <div className="text-[11.5px] text-inkMuted leading-snug">{c.blurb}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-3">
+                      <h4 className="font-display text-[1.0625rem] text-ink leading-tight">Your 5-Minute Briefing On {DEMO_PATIENT.lastFirst}</h4>
+                      <div className="text-[11px] text-inkMuted mt-1">Last refreshed: 2026-05-26, 8:23 PM EDT · 3/10 sections expanded</div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {GPS_POPULATED_SECTIONS.map((s) => (
+                        <div
+                          key={s.id}
+                          className="rounded-lg p-3 bg-[#FBFCFA]"
+                          style={{ border: '1px solid rgba(32,30,23,0.10)' }}
+                        >
+                          <div className="text-[10.5px] uppercase tracking-[0.14em] font-semibold mb-1" style={{ color: '#1a4d3e' }}>{s.title}</div>
+                          <div className="text-[12.5px] text-ink leading-snug">{s.body}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ---- Component 5: digital-twin longitudinal trajectory ----------------
+    // Timeline strip + inline SVG MoCA trend chart + pathway-transition
+    // annotations + plain-English AI narrative. Uses MOCA_TIMELINE (declared at
+    // the top of the script) so the data reads consistently across artifacts.
+
+    const CHANNEL_META = {
+      athena:    { label: 'Athena',    color: '#5C3994' },
+      mindy:     { label: 'Mindy AI',  color: '#083630' },
+      caregiver: { label: 'Caregiver', color: '#1a4d3e' },
+    };
+
+    // Map a MoCA score to the cognitive-gate severity bucket the existing
+    // pathway-builder uses. Numbers come from COG_GATE_ROUTES.
+    const severityForScore = (score) => {
+      if (score < 18) return { pathwayId: 'severe',   label: 'Severe pathway',   note: 'Score < 18 — severe dementia pathway' };
+      if (score < 23) return { pathwayId: 'moderate', label: 'Moderate pathway', note: 'Score 18–22 — moderate dementia pathway' };
+      if (score < 26) return { pathwayId: 'mild',     label: 'Mild pathway',     note: 'Score 23–26 — mild cognitive impairment pathway' };
+      return { pathwayId: null, label: 'Within range', note: 'Score ≥ 26 — no pathway-routing trigger' };
+    };
+
+    const MocaTrendChart = ({ data }) => {
+      const W = 520, H = 200, PAD_L = 36, PAD_R = 14, PAD_T = 16, PAD_B = 32;
+      const innerW = W - PAD_L - PAD_R, innerH = H - PAD_T - PAD_B;
+      const minScore = 14, maxScore = 30;
+      const xFor = (i) => PAD_L + (i / (data.length - 1)) * innerW;
+      const yFor = (s) => PAD_T + (1 - (s - minScore) / (maxScore - minScore)) * innerH;
+      const path = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${xFor(i).toFixed(1)} ${yFor(d.score).toFixed(1)}`).join(' ');
+      const gridLines = [18, 22, 26]; // severity thresholds
+      const gridLabels = { 18: 'Severe', 22: 'Moderate', 26: 'Mild' };
+      return (
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto" role="img" aria-label="MoCA score over time">
+          {gridLines.map((s) => (
+            <g key={s}>
+              <line
+                x1={PAD_L} x2={W - PAD_R} y1={yFor(s)} y2={yFor(s)}
+                stroke="rgba(32,30,23,0.12)" strokeWidth="1" strokeDasharray="3 4"
+              />
+              <text x={PAD_L - 6} y={yFor(s) + 3} textAnchor="end" fontSize="9" fill="#8A8270">{s}</text>
+              <text x={W - PAD_R - 4} y={yFor(s) - 3} textAnchor="end" fontSize="9" fill="#8A8270">{gridLabels[s]}</text>
+            </g>
+          ))}
+          <text x={PAD_L - 6} y={PAD_T + 6} textAnchor="end" fontSize="9" fill="#8A8270">30</text>
+          <text x={PAD_L - 6} y={H - PAD_B + 2} textAnchor="end" fontSize="9" fill="#8A8270">14</text>
+          <path d={path} fill="none" stroke="#083630" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          {data.map((d, i) => {
+            const c = CHANNEL_META[d.channel].color;
+            return (
+              <g key={i}>
+                <circle cx={xFor(i)} cy={yFor(d.score)} r="5" fill="#FBF7F0" stroke={c} strokeWidth="2" />
+                <text x={xFor(i)} y={yFor(d.score) - 10} textAnchor="middle" fontSize="10" fontWeight="600" fill={c}>{d.score}</text>
+                <text x={xFor(i)} y={H - PAD_B + 14} textAnchor="middle" fontSize="9" fill="#5F584A">
+                  {d.date.slice(0, 7)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      );
+    };
+
+    const DigitalTwinArtifact = () => {
+      const points = MOCA_TIMELINE;
+      const baseline = points[0].score;
+      const latest = points[points.length - 1].score;
+      const delta = latest - baseline;
+      const stabilizations = points.reduce((acc, p, i) => {
+        if (i === 0) return acc;
+        return p.score > points[i - 1].score ? acc + 1 : acc;
+      }, 0);
+
+      // Pathway transitions: emit a row each time the severity bucket changes
+      // versus the prior datapoint.
+      const transitions = points.flatMap((p, i) => {
+        const sev = severityForScore(p.score);
+        if (i === 0) return [{ ...p, severity: sev, transition: 'baseline' }];
+        const prevSev = severityForScore(points[i - 1].score);
+        if (sev.pathwayId !== prevSev.pathwayId) {
+          return [{ ...p, severity: sev, transition: `from ${prevSev.label} → ${sev.label}` }];
+        }
+        return [];
+      });
+
+      return (
+        <div className="flex flex-col gap-4 px-5 py-5">
+          <p className="text-[13px] text-inkSoft leading-relaxed">
+            The longitudinal trajectory the digital twin synthesizes for {DEMO_PATIENT.name}. Six MoCA datapoints across three delivery channels, mapped to the pathway-builder's severity routing.
+          </p>
+
+          {/* Timeline strip */}
+          <section
+            className="rounded-[1.125rem] bg-cream p-4"
+            style={{ border: '1px solid rgba(32,30,23,0.10)' }}
+          >
+            <div className="eyebrow mb-3">Assessment timeline · 18 months</div>
+            <div className="flex flex-col gap-2">
+              {points.map((p) => {
+                const meta = CHANNEL_META[p.channel];
+                return (
+                  <div
+                    key={p.date}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg"
+                    style={{ backgroundColor: `${meta.color}0A`, border: `1px solid ${meta.color}33` }}
+                  >
+                    <span className="text-[11px] font-semibold w-[88px] shrink-0" style={{ color: meta.color }}>
+                      {formatArtifactDate(p.date)}
+                    </span>
+                    <span
+                      className="px-1.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-[0.10em] shrink-0"
+                      style={{ backgroundColor: `${meta.color}1A`, color: meta.color, border: `1px solid ${meta.color}33` }}
+                    >
+                      {meta.label}
+                    </span>
+                    <span className="text-[12.5px] text-ink flex-1 min-w-0 truncate">{p.label}</span>
+                    <span className="text-[12.5px] font-semibold tabular-nums" style={{ color: meta.color }}>{p.score}/30</span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Trended MoCA chart */}
+          <section
+            className="rounded-[1.125rem] bg-cream p-4"
+            style={{ border: '1px solid rgba(32,30,23,0.10)' }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="eyebrow">MoCA trajectory</div>
+              <div className="text-[10.5px] text-inkMuted">
+                Baseline {baseline}/30 → latest {latest}/30 · Δ {delta > 0 ? '+' : ''}{delta}
+              </div>
+            </div>
+            <MocaTrendChart data={points} />
+            <div className="flex items-center justify-center gap-4 mt-2 text-[10.5px]">
+              {Object.entries(CHANNEL_META).map(([k, m]) => (
+                <span key={k} className="inline-flex items-center gap-1.5">
+                  <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: m.color }}></span>
+                  <span className="text-inkSoft">{m.label}</span>
+                </span>
+              ))}
+            </div>
+          </section>
+
+          {/* Pathway transitions */}
+          <section
+            className="rounded-[1.125rem] bg-cream p-4"
+            style={{ border: '1px solid rgba(32,30,23,0.10)' }}
+          >
+            <div className="eyebrow mb-3">Pathway transitions · severity-driven</div>
+            <div className="flex flex-col gap-2">
+              {transitions.map((t, i) => {
+                const meta = DEMO_PATHWAYS[t.severity.pathwayId] || { hex: '#5F584A', label: t.severity.label };
+                return (
+                  <div
+                    key={i}
+                    className="flex items-start gap-3 px-3 py-2 rounded-lg"
+                    style={{ backgroundColor: `${meta.hex}0d`, border: `1px solid ${meta.hex}40` }}
+                  >
+                    <span className="text-[11px] font-semibold w-[88px] shrink-0" style={{ color: meta.hex }}>
+                      {formatArtifactDate(t.date)}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12.5px] font-semibold leading-snug" style={{ color: meta.hex }}>
+                        {t.transition === 'baseline' ? `Baseline · ${t.severity.label}` : t.transition}
+                      </div>
+                      <div className="text-[11.5px] text-inkSoft leading-snug mt-0.5">
+                        {t.severity.note} · score {t.score}/30
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* AI narrative */}
+          <section
+            className="rounded-[1.125rem] p-4"
+            style={{
+              backgroundColor: 'rgba(8, 54, 48, 0.06)',
+              border: '1px solid rgba(8, 54, 48, 0.20)',
+            }}
+          >
+            <div className="eyebrow mb-2" style={{ color: '#083630' }}>What the AI sees</div>
+            <p className="text-[13px] text-ink leading-relaxed">
+              {DEMO_PATIENT.name} shows a steady mild cognitive decline of {Math.abs(delta)} points over {points.length - 1} screens across {points.length - 1 - stabilizations + 1} severity transitions in 18 months.
+              The trajectory crossed the mild→moderate threshold mid-2025; one stabilization in Q3 2025 followed a caregiver-supported screen, suggesting engagement is being sustained at home.
+              Recommend escalation to the 99483 care-plan visit and digital-twin progression monitoring at the next cycle.
+            </p>
+          </section>
+        </div>
+      );
+    };
+
+    // ---- Drawer shell -----------------------------------------------------
+    // Hosts whichever artifact body matches the selected artifact id. The
+    // drawer is mounted in DemoCanvas; opening or closing it just toggles a
+    // single string id in DemoCanvas state.
+    const ArtifactDrawer = ({ artifactId, onClose }) => {
+      useEffect(() => {
+        if (!artifactId) return;
+        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        document.addEventListener('keydown', onKey);
+        return () => document.removeEventListener('keydown', onKey);
+      }, [artifactId, onClose]);
+
+      // Lock body scroll while open so the drawer's internal scroll owns input.
+      useEffect(() => {
+        if (!artifactId) return;
+        const prev = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => { document.body.style.overflow = prev; };
+      }, [artifactId]);
+
+      const open = Boolean(artifactId);
+      const title = artifactId ? ARTIFACT_TITLES[artifactId] : '';
+
+      return (
+        <>
+          <div
+            className={`artifact-drawer-backdrop${open ? ' open' : ''}`}
+            onClick={onClose}
+            aria-hidden="true"
+          />
+          <div
+            className={`artifact-drawer${open ? ' open' : ''}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={title || 'Demo artifact'}
+            aria-hidden={!open}
+          >
+            <div
+              className="px-5 pt-4 pb-3 sticky top-0 bg-cream"
+              style={{ borderBottom: '1px solid rgba(32,30,23,0.10)', zIndex: 1 }}
+            >
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="min-w-0">
+                  <div className="eyebrow mb-1">Live artifact</div>
+                  <h3 className="font-display text-[1.25rem] text-ink leading-tight truncate">{title}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-full transition-colors hover:bg-[rgba(32,30,23,0.05)]"
+                  aria-label="Close artifact"
+                >
+                  <IconClose />
+                </button>
+              </div>
+              <DemoPatientBanner />
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {artifactId === 'entry-points'      && <EntryPointsArtifact />}
+              {artifactId === 'pre-visit-summary' && <PreVisitSummaryArtifact />}
+              {artifactId === 'digital-twin'      && <DigitalTwinArtifact />}
+            </div>
+          </div>
+        </>
+      );
+    };
+
     const DemoCanvas = ({ activePathway, workflowStates, onSetWorkflowState, onSetPrescribableState, customNodes, onAddCustomNode, onRemoveCustomNode }) => {
       const visiblePathwayIds = PATHWAY_IDS.filter(id => (workflowStates[id] || STATE_OFF) !== STATE_OFF);
       const count = visiblePathwayIds.length;
       const hasAny = count > 0;
+      const [selectedArtifact, setSelectedArtifact] = useState(null);
+      const openArtifact = (id) => setSelectedArtifact(id);
+      const closeArtifact = () => setSelectedArtifact(null);
 
       // Grid columns scale with how many pathways are permitted.
       const gridClass =
@@ -1557,7 +2633,7 @@
                 ></div>
               </div>
               <div className="w-full max-w-md z-10">
-                <CognitiveGateCard visiblePathwayIds={visiblePathwayIds} />
+                <CognitiveGateCard visiblePathwayIds={visiblePathwayIds} onOpenArtifact={openArtifact} />
               </div>
               <div className="flex flex-col items-center pointer-events-none mb-4 mt-1">
                 <div
@@ -1607,6 +2683,7 @@
                             customNodes={customNodes}
                             onAddCustomNode={onAddCustomNode}
                             onRemoveCustomNode={onRemoveCustomNode}
+                            onOpenArtifact={openArtifact}
                           />
                           {!isLast && <VisitLink nextVisit={VISIT_DEFS[pathway.visits[i + 1]]} />}
                         </React.Fragment>
@@ -1640,6 +2717,7 @@
               No pathways permitted. Enable one or more workflows in the referral node above to render their protocols here.
             </div>
           )}
+          <ArtifactDrawer artifactId={selectedArtifact} onClose={closeArtifact} />
         </div>
       );
     };
