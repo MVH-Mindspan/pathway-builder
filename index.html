@@ -1137,7 +1137,7 @@
         <div className="eyebrow mb-2">Demo</div>
         <h2 className="font-display text-[1.5rem] text-ink mb-3 leading-tight">Care navigation story</h2>
         <p className="text-[13px] text-inkSoft mb-6 leading-relaxed">
-          A built care pathway, told from three perspectives. Toggle below the diagram to see what each audience sees. Click <span className="font-semibold text-ink">Initial Assessment</span>, <span className="font-semibold text-ink">Results</span>, or <span className="font-semibold text-ink">Care Plan</span> to see the live artifact each step produces.
+          A built care pathway, told from three perspectives. Toggle below the diagram to see what each audience sees. Click <span className="font-semibold text-ink">Mindy</span>, <span className="font-semibold text-ink">Provider Pre-Visit Summary</span>, <span className="font-semibold text-ink">Patient Care Plan</span>, or <span className="font-semibold text-ink">Digital Twin</span> to see the live artifact each step produces.
         </p>
         <div className="mt-auto text-[12px] text-inkMuted pt-6 leading-relaxed">
           Switch to <span className="text-teal font-semibold">Build</span> to compose a pathway from scratch.
@@ -2781,17 +2781,53 @@
     // PathwayDiagram and ViewToggle are pure prop-driven so a future
     // task can mount them inside /build as a preview mode.
 
+    // ─────────────────────────────────────────────────────────────────
+    // /demo pathway skeleton (10 boxes left-to-right).
+    //
+    // FIVE story-anchor tiles are FIXED across all views, all carry an
+    // always-visible caption beneath the label, and /build state can
+    // never add, remove, or replace them:
+    //   • mindy        — clickable, opens Mindy video
+    //   • pre-visit    — clickable, opens Provider Pre-Visit Summary
+    //   • decision     — decision-gate styling (not clickable)
+    //   • care-plan    — clickable, opens Sample Care Plan
+    //   • digital-twin — clickable, opens Digital Twin chart
+    //
+    // FIVE connector tiles (intake, reminder, caregiver, results,
+    // follow-up) are skeleton context. Their per-view visibility is
+    // tuned to the audience, and /build pathway toggles can augment
+    // them with a one-line context blurb via BUILD_TO_DEMO_MAPPING.
+    // Connectors carry NO captions.
+    // ─────────────────────────────────────────────────────────────────
     const DEMO_BOXES = [
-      { id: 'intake',    label: 'Patient Intake',                                                                              views: ['care-nav', 'patient'] },
-      { id: 'initial',   label: 'Initial Assessment', sublabel: 'Mindy AI',          clickable: true,                          views: ['care-nav', 'patient', 'provider'] },
-      { id: 'reminder',  label: 'Reminder if needed', sublabel: 'Care-nav outreach',                                            views: ['care-nav'] },
-      { id: 'caregiver', label: 'Caregiver Assessment',                                                                         views: ['care-nav', 'patient', 'provider'] },
-      { id: 'results',   label: 'Results',            sublabel: 'Provider review',   clickable: true,  decisionGate: true,     views: ['care-nav', 'patient', 'provider'] },
-      { id: 'care-plan', label: 'Care Plan',          sublabel: 'Provider approves', clickable: true,  decisionGate: true,     views: ['care-nav', 'patient', 'provider'] },
-      { id: 'follow-up', label: 'Follow-up',                                                                                   views: ['care-nav', 'patient', 'provider'] },
+      { id: 'intake',       label: 'Patient Intake',                                              views: ['care-nav', 'patient'] },
+      { id: 'reminder',     label: 'Reminder if needed',                                          views: ['care-nav', 'patient'] },
+      { id: 'mindy',        label: 'Mindy', sublabel: 'Initial Assessment',
+        clickable: true,
+        caption: 'This is how Mindy works — what the assessment step looks like for the patient.',
+        views: ['care-nav', 'patient', 'provider'] },
+      { id: 'caregiver',    label: 'Caregiver Assessment',                                        views: ['care-nav', 'patient', 'provider'] },
+      { id: 'pre-visit',    label: 'Provider Pre-Visit Summary',
+        clickable: true,
+        caption: 'What providers see before the patient visit — how this makes providers more efficient.',
+        views: ['care-nav', 'patient', 'provider'] },
+      { id: 'results',      label: 'Results',                                                     views: ['care-nav', 'provider'] },
+      { id: 'decision',     label: 'Care Decision Point',
+        decisionGate: true,
+        caption: 'Where the partner provider decides whether the patient proceeds to the next step.',
+        views: ['care-nav', 'patient', 'provider'] },
+      { id: 'care-plan',    label: 'Patient Care Plan',
+        clickable: true,
+        caption: 'What the patient gets — next steps, appointments, and plan details.',
+        views: ['care-nav', 'patient', 'provider'] },
+      { id: 'follow-up',    label: 'Follow-up',                                                   views: ['care-nav', 'patient', 'provider'] },
+      { id: 'digital-twin', label: 'Digital Twin', sublabel: 'Outcome Monitoring',
+        clickable: true,
+        caption: 'How performance and progression are monitored underneath the care flow.',
+        views: ['care-nav', 'patient', 'provider'] },
     ];
 
-    const CLICKABLE_DEMO_BOX_IDS = ['initial', 'results', 'care-plan'];
+    const CLICKABLE_DEMO_BOX_IDS = ['mindy', 'pre-visit', 'care-plan', 'digital-twin'];
 
     // ─────────────────────────────────────────────────────────────────
     // /build → /demo skeleton mapping (source-of-truth, kept in lockstep
@@ -2896,8 +2932,18 @@
     // Pure presentational component. boxes = pathway data, viewMode filters
     // which boxes show, clickableBoxIds lights up the clickable affordance,
     // selectedBoxId persists an accent ring on the active selection,
-    // boxContext (object: boxId → string) renders a one-line context
-    // blurb inside the matching box (populated by /build state).
+    // boxContext (object: boxId → string) renders a one-line context blurb
+    // inside the matching connector box (populated by /build state).
+    //
+    // Two box flavours:
+    //   • Anchor (box.caption present) — wider tile with the always-visible
+    //     caption beneath the label. Renders in all three views.
+    //   • Connector (no caption) — narrower tile; per-view visibility
+    //     filtered via box.views.
+    //
+    // Decision-gate (box.decisionGate true) is emphasised in the provider
+    // view (accent fill + dashed border + "DECISION REQUIRED" caption) and
+    // subdued elsewhere (accent ring + accent text + "Decision required").
     const PathwayDiagram = ({
       boxes,
       viewMode,
@@ -2913,78 +2959,99 @@
       const contextFor = (boxId) => boxContext && boxContext[boxId];
 
       return (
-        <div className="w-full flex flex-col sm:flex-row items-stretch justify-center gap-2 sm:gap-0">
-          {boxes.map((box, i) => {
-            const visible = isBoxVisible(box);
-            const isClickable = clickableBoxIds.includes(box.id);
-            const isSelected = selectedBoxId === box.id;
-            const isDecisionGate = box.decisionGate && viewMode === 'provider';
-            const nextBox = boxes[i + 1];
-            const connectorVisible = visible && !!nextBox && isBoxVisible(nextBox);
-            const isLastBox = i === boxes.length - 1;
-            const ctx = contextFor(box.id);
+        <div className="w-full overflow-x-auto">
+          <div className="w-full min-w-0 sm:min-w-[1280px] flex flex-col sm:flex-row items-stretch justify-center gap-2 sm:gap-0">
+            {boxes.map((box, i) => {
+              const visible = isBoxVisible(box);
+              const isClickable = clickableBoxIds.includes(box.id);
+              const isSelected = selectedBoxId === box.id;
+              const isDecisionGate = !!box.decisionGate;
+              const isDecisionEmphasised = isDecisionGate && viewMode === 'provider';
+              const nextBox = boxes[i + 1];
+              const connectorVisible = visible && !!nextBox && isBoxVisible(nextBox);
+              const isLastBox = i === boxes.length - 1;
+              const ctx = contextFor(box.id);
+              const isAnchor = !!box.caption;
 
-            const baseStyle = isDecisionGate
-              ? { backgroundColor: accent, color: '#FBF7F0', border: `2px dashed ${accentText}` }
-              : isSelected
-                ? { backgroundColor: '#FBF7F0', color: '#201E17', border: `2px solid ${accent}`, boxShadow: `0 0 0 3px rgba(251,77,23,0.15)` }
-                : { backgroundColor: '#FBF7F0', color: '#201E17', border: '1px solid rgba(32,30,23,0.18)' };
+              const baseStyle = isDecisionEmphasised
+                ? { backgroundColor: accent, color: '#FBF7F0', border: `2px dashed ${accentText}` }
+                : isDecisionGate
+                  ? { backgroundColor: '#FBF7F0', color: '#201E17', border: `1.5px solid ${accent}`, boxShadow: `inset 0 0 0 1px ${accent}33` }
+                  : isSelected
+                    ? { backgroundColor: '#FBF7F0', color: '#201E17', border: `2px solid ${accent}`, boxShadow: `0 0 0 3px rgba(251,77,23,0.15)` }
+                    : { backgroundColor: '#FBF7F0', color: '#201E17', border: '1px solid rgba(32,30,23,0.18)' };
 
-            return (
-              <React.Fragment key={box.id}>
-                <button
-                  type="button"
-                  onClick={() => visible && isClickable && onBoxClick(box.id)}
-                  disabled={!isClickable || !visible}
-                  aria-pressed={isClickable ? isSelected : undefined}
-                  aria-hidden={!visible}
-                  tabIndex={visible ? 0 : -1}
-                  data-visible={visible ? 'true' : 'false'}
-                  className={`demo-pathway-box relative flex-1 min-w-0 max-w-[200px] sm:max-w-[180px] mx-auto sm:mx-0 w-full sm:w-auto px-3 py-3 rounded-[0.875rem] text-center ${
-                    isClickable ? 'cursor-pointer hover:-translate-y-0.5' : 'cursor-default'
-                  }`}
-                  style={baseStyle}
-                >
-                  <div className="text-[12.5px] font-semibold leading-tight">
-                    {box.label}
-                  </div>
-                  {box.sublabel && (
-                    <div
-                      className="text-[10.5px] mt-0.5 leading-snug"
-                      style={isDecisionGate ? { color: 'rgba(251,247,240,0.85)' } : { color: '#5F584A' }}
-                    >
-                      {box.sublabel}
+              const widthClass = isAnchor
+                ? 'max-w-[200px] sm:max-w-[170px] sm:flex-[1.4]'
+                : 'max-w-[200px] sm:max-w-[120px] sm:flex-[1]';
+
+              return (
+                <React.Fragment key={box.id}>
+                  <button
+                    type="button"
+                    onClick={() => visible && isClickable && onBoxClick(box.id)}
+                    disabled={!isClickable || !visible}
+                    aria-pressed={isClickable ? isSelected : undefined}
+                    aria-hidden={!visible}
+                    tabIndex={visible ? 0 : -1}
+                    data-visible={visible ? 'true' : 'false'}
+                    className={`demo-pathway-box relative min-w-0 mx-auto sm:mx-0 w-full sm:w-auto px-3 py-3 rounded-[0.875rem] text-center ${widthClass} ${
+                      isClickable ? 'cursor-pointer hover:-translate-y-0.5' : 'cursor-default'
+                    }`}
+                    style={baseStyle}
+                  >
+                    <div className="text-[12.5px] font-semibold leading-tight">
+                      {box.label}
                     </div>
-                  )}
-                  {isDecisionGate && (
-                    <div
-                      className="text-[9.5px] mt-1 uppercase tracking-[0.10em] font-semibold"
-                      style={{ color: '#FBF7F0' }}
-                    >
-                      Decision required
-                    </div>
-                  )}
-                  {isClickable && !isDecisionGate && (
-                    <div
-                      className="text-[9.5px] mt-1 uppercase tracking-[0.10em] font-semibold"
-                      style={{ color: accentText }}
-                    >
-                      {isSelected ? 'Showing' : 'View →'}
-                    </div>
-                  )}
-                  {ctx && (
-                    <div
-                      className="text-[10.5px] mt-2 pt-2 leading-snug text-left"
-                      style={
-                        isDecisionGate
-                          ? { color: 'rgba(251,247,240,0.92)', borderTop: '1px solid rgba(251,247,240,0.35)' }
-                          : { color: '#5F584A', borderTop: `1px solid ${accent}40` }
-                      }
-                    >
-                      {ctx}
-                    </div>
-                  )}
-                </button>
+                    {box.sublabel && (
+                      <div
+                        className="text-[10.5px] mt-0.5 leading-snug"
+                        style={isDecisionEmphasised ? { color: 'rgba(251,247,240,0.85)' } : { color: '#5F584A' }}
+                      >
+                        {box.sublabel}
+                      </div>
+                    )}
+                    {isDecisionGate && (
+                      <div
+                        className="text-[9.5px] mt-1 uppercase tracking-[0.10em] font-semibold"
+                        style={isDecisionEmphasised ? { color: '#FBF7F0' } : { color: accentText }}
+                      >
+                        Decision required
+                      </div>
+                    )}
+                    {isClickable && !isDecisionGate && (
+                      <div
+                        className="text-[9.5px] mt-1 uppercase tracking-[0.10em] font-semibold"
+                        style={{ color: accentText }}
+                      >
+                        {isSelected ? 'Showing' : 'View →'}
+                      </div>
+                    )}
+                    {box.caption && (
+                      <div
+                        className="text-[10.5px] mt-2 pt-2 leading-snug text-left"
+                        style={
+                          isDecisionEmphasised
+                            ? { color: 'rgba(251,247,240,0.92)', borderTop: '1px solid rgba(251,247,240,0.35)' }
+                            : { color: '#5F584A', borderTop: `1px solid ${accent}33` }
+                        }
+                      >
+                        {box.caption}
+                      </div>
+                    )}
+                    {ctx && (
+                      <div
+                        className="text-[10.5px] mt-2 pt-2 leading-snug text-left"
+                        style={
+                          isDecisionEmphasised
+                            ? { color: 'rgba(251,247,240,0.92)', borderTop: '1px solid rgba(251,247,240,0.35)' }
+                            : { color: '#5F584A', borderTop: `1px dashed rgba(32,30,23,0.18)` }
+                        }
+                      >
+                        {ctx}
+                      </div>
+                    )}
+                  </button>
                 {!isLastBox && (
                   <div
                     data-visible={connectorVisible ? 'true' : 'false'}
@@ -3002,8 +3069,9 @@
                   </div>
                 )}
               </React.Fragment>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       );
     };
@@ -3220,9 +3288,10 @@
     // Inline expansion panel — opens directly under the diagram & toggles
     // when a clickable box is selected. Not a modal, not a side drawer.
     const DEMO_PANEL_TITLES = {
-      'initial':   'Initial Assessment · Mindy AI',
-      'results':   'Results · Provider Summary',
-      'care-plan': 'Sample Care Plan',
+      'mindy':        'Mindy · Initial Assessment',
+      'pre-visit':    'Provider Pre-Visit Summary',
+      'care-plan':    'Sample Care Plan',
+      'digital-twin': 'Digital Twin · Outcome Monitoring',
     };
 
     const DemoInlinePanel = ({ boxId, onClose }) => {
@@ -3258,11 +3327,12 @@
             </button>
           </div>
           <div>
-            {boxId === 'initial' && (
+            {boxId === 'mindy' && (
               <div className="p-5 max-w-2xl mx-auto"><MindyCard /></div>
             )}
-            {boxId === 'results'   && <PreVisitSummaryArtifact />}
-            {boxId === 'care-plan' && <SampleCarePlanArtifact />}
+            {boxId === 'pre-visit'    && <PreVisitSummaryArtifact />}
+            {boxId === 'care-plan'    && <SampleCarePlanArtifact />}
+            {boxId === 'digital-twin' && <DigitalTwinArtifact />}
           </div>
         </section>
       );
@@ -3386,7 +3456,7 @@
 
       return (
         <div className="flex-1 overflow-y-auto p-6 sm:p-8 flex flex-col items-center scroll-smooth paper-grain">
-          <div className="w-full max-w-5xl flex flex-col items-center gap-6">
+          <div className="w-full max-w-[88rem] flex flex-col items-center gap-6">
             {/* Hero: pathway diagram */}
             <div className="w-full">
               <PathwayDiagram
@@ -3414,7 +3484,7 @@
 
             {!selectedDemoBoxId && (
               <p className="text-[13px] text-inkMuted text-center max-w-md leading-relaxed">
-                Click <span className="font-semibold text-ink">Initial Assessment</span>, <span className="font-semibold text-ink">Results</span>, or <span className="font-semibold text-ink">Care Plan</span> to see what each step looks like in practice.
+                Click <span className="font-semibold text-ink">Mindy</span>, <span className="font-semibold text-ink">Provider Pre-Visit Summary</span>, <span className="font-semibold text-ink">Patient Care Plan</span>, or <span className="font-semibold text-ink">Digital Twin</span> to see what each step looks like in practice.
               </p>
             )}
           </div>
