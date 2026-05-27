@@ -2866,6 +2866,10 @@
         severe: STATE_OFF,
         guide: STATE_ON,
       });
+      // Build mode tracks its own pathway toggles, independent of Demo. Build
+      // starts with everything Off so the user composes from a blank slate;
+      // missing keys fall through `state || STATE_OFF` in RootReferralCard.
+      const [buildWorkflowStates, setBuildWorkflowStates] = useState({});
       const [demoOverrides, setDemoOverrides] = useState({});
       // User-inserted nodes between phases inside a visit. Keyed by
       // `${pathwayId}__${visitId}__${slotIndex}` where slotIndex 0 is before
@@ -2875,6 +2879,10 @@
 
       const setWorkflowState = (id, state) => {
         setWorkflowStates(prev => ({ ...prev, [id]: state }));
+      };
+
+      const setBuildWorkflowState = (id, state) => {
+        setBuildWorkflowStates(prev => ({ ...prev, [id]: state }));
       };
 
       const addCustomNode = (pathwayId, visitId, slotIdx, typeId) => {
@@ -3059,8 +3067,8 @@
               <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 relative flex flex-col items-center scroll-smooth paper-grain">
                 <div className="w-full max-w-md z-10">
                   <RootReferralCard
-                    workflowStates={workflowStates}
-                    onSetWorkflowState={setWorkflowState}
+                    workflowStates={buildWorkflowStates}
+                    onSetWorkflowState={setBuildWorkflowState}
                     hideTitle
                   />
                 </div>
