@@ -272,9 +272,19 @@
     // `locked: true` means escalated approval is required before it can be added.
     const PRESCRIBABLES = {
       assess: [
-        { id: 'cog-screen',  label: 'Cognitive decline screen (MoCA/MIS)', nestedFlow: ['MoCA administered remotely', 'MIS scored by care team', 'Result documented in Athena'] },
-        { id: 'biomarkers',  label: 'Biomarkers + MRI review',             nestedFlow: ['Dementia lab panel resulted', 'MRI report reviewed by provider', 'Surveillance imaging on schedule'], locked: true, lockReason: 'Neurology consult prerequisite' },
+        { id: 'moca',        label: 'MoCA cognitive screen',               nestedFlow: ['Administered remotely or in-clinic', '30-point score captured in Athena', 'Score < 26 flags impairment'] },
+        { id: 'mis',         label: 'MIS memory impairment screen',         nestedFlow: ['Four-item delayed recall', 'Score 0-8 documented', 'Score ≤ 4 flags possible dementia'] },
+        { id: 'mini-cog',    label: 'Mini-Cog screen',                      nestedFlow: ['Three-word recall + clock draw', 'Score 0-5 documented', 'Score ≤ 2 flags cognitive impairment'] },
+        { id: 'ad8',         label: 'AD8 informant interview',              nestedFlow: ['Informant completes eight-item screen', 'Score ≥ 2 flags possible dementia', 'Care nav reviews + escalates'] },
+        { id: 'phq-9',       label: 'PHQ-9 depression screen',              nestedFlow: ['Nine-item screen administered', 'Score 0-27 captured in Athena', 'Score ≥ 10 routes to behavioral health'] },
+        { id: 'gad-7',       label: 'GAD-7 anxiety screen',                 nestedFlow: ['Seven-item screen administered', 'Score 0-21 captured in Athena', 'Score ≥ 10 routes to behavioral health'] },
+        { id: 'gds-15',      label: 'GDS-15 geriatric depression scale',    nestedFlow: ['Fifteen-item screen for older adults', 'Score ≥ 5 flags depression', 'Routes to PCP follow-up'] },
+        { id: 'adl-iadl',    label: 'ADL / IADL functional assessment',     nestedFlow: ['Activities of daily living scored', 'IADLs reviewed by care nav', 'Decline triggers home-safety routing'] },
+        { id: 'falls-risk',  label: 'STEADI falls risk assessment',         nestedFlow: ['Three-question STEADI screen', 'Positive screen → gait + balance check', 'Home-safety tasks routed'] },
+        { id: 'med-review',  label: 'Medication reconciliation',            nestedFlow: ['All home meds + supplements reviewed', 'High-risk meds flagged for deprescribing', 'Pharmacist consult queued'] },
+        { id: 'audit-c',     label: 'AUDIT-C alcohol screen',               nestedFlow: ['Three-item alcohol-use screen', 'Positive screen → brief intervention', 'Documented at intake'] },
         { id: 'hrsn',        label: 'HRSN screening (AHC / PRAPARE)',       nestedFlow: ['Screen completed', 'Positive domains identified', 'Community referral loop opened'] },
+        { id: 'biomarkers',  label: 'Biomarkers + MRI review',              nestedFlow: ['Dementia lab panel resulted', 'MRI report reviewed by provider', 'Surveillance imaging on schedule'], locked: true, lockReason: 'Neurology consult prerequisite' },
       ],
       decide: [
         { id: 'cms-elig',          label: 'CMS eligibility pre-screen',          nestedFlow: ['Medicare A+B verified', 'Not in MA/PACE/hospice', 'Not LTNH resident'] },
@@ -355,7 +365,7 @@
         phases: [
           phaseNode('205-pre', 'assess', '99205 pre-visit preparation',
             'RCM, Member Experience, and Care Coordination confirm readiness ≥7 business days before the new-patient encounter.',
-            ['cog-screen']),
+            ['moca', 'mis']),
           phaseNode('205-during', 'treat', '99205 visit execution',
             'Provider delivers the new-patient evaluation and signs the note same business day with high MDM or 60–74 minutes time-spent.',
             ['dcm']),
@@ -453,37 +463,82 @@
       )
     );
 
-    // Tri-state segmented control: Off / Approval / On. Sets the workflow state
-    // for a single permitted-protocol row. Click events stop propagation so the
-    // row's own click handler doesn't also fire.
+    // Compact tri-state pill: shows the current state as a single badge; click
+    // opens a small popover with the three options. Frees up horizontal space
+    // for the workflow label so it always reads.
     const TriStateControl = ({ value, onChange }) => {
       const v = value || STATE_OFF;
+      const [open, setOpen] = useState(false);
+      const ref = useRef(null);
+      useEffect(() => {
+        if (!open) return;
+        const onDoc = (e) => {
+          if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onDoc);
+        return () => document.removeEventListener('mousedown', onDoc);
+      }, [open]);
+
+      const current = STATE_OPTIONS.find(o => o.id === v) || STATE_OPTIONS[0];
+      const c = STATE_COLORS[v];
       return (
-        <div
-          className="inline-flex bg-cream rounded-pill p-0.5 shrink-0"
-          style={{ border: '1px solid rgba(32,30,23,0.14)' }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {STATE_OPTIONS.map(o => {
-            const active = v === o.id;
-            const c = STATE_COLORS[o.id];
-            return (
-              <button
-                key={o.id}
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onChange(o.id); }}
-                className="px-2 py-[3px] rounded-pill text-[10.5px] font-semibold transition-colors"
-                style={{
-                  backgroundColor: active ? c.bg : 'transparent',
-                  color: active ? c.text : '#8A8270',
-                  letterSpacing: '0.04em',
-                  minWidth: '46px',
-                }}
-              >
-                {o.label}
-              </button>
-            );
-          })}
+        <div className="relative shrink-0" ref={ref} onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-pill text-[11px] font-semibold transition-colors"
+            style={{
+              backgroundColor: c.bg,
+              color: c.text,
+              border: '1px solid rgba(32,30,23,0.14)',
+              letterSpacing: '0.04em',
+              minWidth: '70px',
+              justifyContent: 'space-between',
+            }}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+          >
+            <span>{current.label}</span>
+            <svg width="9" height="9" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <path d="M2.5 4.5l3.5 3 3.5-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {open && (
+            <div
+              role="listbox"
+              className="absolute top-full left-0 mt-1 bg-cream rounded-xl p-1 z-50 animate-fade-in-up"
+              style={{
+                border: '1px solid rgba(32,30,23,0.14)',
+                boxShadow: '0 8px 24px -8px rgba(32, 30, 23, 0.22), 0 2px 6px rgba(32,30,23,0.08)',
+                minWidth: '120px',
+              }}
+            >
+              {STATE_OPTIONS.map(o => {
+                const active = o.id === v;
+                const co = STATE_COLORS[o.id];
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    onClick={(e) => { e.stopPropagation(); onChange(o.id); setOpen(false); }}
+                    className="w-full text-left px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors flex items-center gap-2"
+                    style={{
+                      backgroundColor: active ? co.bg : 'transparent',
+                      color: active ? co.text : '#5F584A',
+                    }}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: co.text }}
+                    ></span>
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       );
     };
